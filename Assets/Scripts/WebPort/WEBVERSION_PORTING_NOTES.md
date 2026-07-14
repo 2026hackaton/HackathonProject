@@ -79,6 +79,17 @@ Visual replacement workflow:
   `playerSpriteLocalScale`. Reduce width/height or scale if newly imported
   Sprite frames look too large. These fields only affect visuals, not gameplay
   collision or movement.
+- Skybox is controlled by `skyboxMaterial` in `WebPortVisualConfig`. If it is
+  assigned, the WebPort camera uses `CameraClearFlags.Skybox` and applies that
+  material to `RenderSettings.skybox`. If it is empty, the camera keeps using
+  `pageBackground` as a solid color.
+- Indoor boundary walls are generated automatically when `createBoundaryWalls`
+  is enabled. The runtime calculates the rendered map bounds and places four
+  long visual walls around it. Wall height, thickness, padding, material, and
+  fallback color are controlled by `boundaryWallHeight`,
+  `boundaryWallThickness`, `boundaryWallPadding`, `boundaryWallMaterial`, and
+  `boundaryWallColor`. These walls are visual-only; colliders are removed so
+  gameplay remains controlled by WebPort movement code.
 - `uiPrefab` is optional. If it is empty, the game builds the default runtime UI.
   If it is assigned, the prefab is instantiated under the generated Canvas and
   drives Menu, Lobby, Results, and HUD through `WebPortUiPrefabView`.
@@ -113,6 +124,17 @@ Visual replacement workflow:
 - Each replacement prefab has a matching transform override in the config
   (`localPosition`, `localEulerAngles`, `localScale`). Use these fields to resize
   or align imported package, obstacle, truck, and bus prefabs without editing code.
+- Package gameplay collision can follow replacement prefab size. When
+  `packageCollisionMatchesPrefabBounds` is enabled, package collision is measured
+  from the replacement prefab after transform overrides. If the prefab has
+  Collider components, those Collider bounds are used and Renderer/SpriteRenderer
+  bounds are ignored. If it has no Collider, Renderer/SpriteRenderer bounds are
+  used. If neither exists, `fallbackPackageCollisionSize` is used. Runtime
+  Collider components are still removed from visuals so Unity physics does not
+  fight the WebPort gameplay solver.
+- Package visual ground offset also uses the measured prefab bounds, so Sprite or
+  mesh prefabs keep their authored size instead of being placed with the old
+  fixed 12-unit box offset.
 - `diagonalFacingDeadZone` controls diagonal animation stability. Higher values keep the
   current facing animation longer when diagonal movement is near 45 degrees.
 

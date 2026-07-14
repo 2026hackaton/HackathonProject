@@ -11,7 +11,7 @@ namespace Hackathon.WebPort
     public sealed class WebPortGameManager : MonoBehaviour
     {
         [SerializeField] private bool _useWebSocketTransport = true;
-        [SerializeField] private string _serverUrl = "ws://localhost:8081";
+        [SerializeField] private string _serverUrl = "ws://192.168.1.148:8081";
 
         private readonly Dictionary<int, PlayerState> _players = new();
         private readonly Dictionary<int, PackageState> _packages = new();
@@ -749,8 +749,9 @@ namespace Hackathon.WebPort
                 if (package.HeldBy.HasValue || package.Delivered || package.Position.y > 5f)
                     continue;
 
-                float closestX = Mathf.Clamp(self.Position.x, package.Position.x - WebPortConstants.BoxHalf, package.Position.x + WebPortConstants.BoxHalf);
-                float closestZ = Mathf.Clamp(self.Position.z, package.Position.z - WebPortConstants.BoxHalf, package.Position.z + WebPortConstants.BoxHalf);
+                Vector3 packageHalfExtents = GetPackageHalfExtents(package);
+                float closestX = Mathf.Clamp(self.Position.x, package.Position.x - packageHalfExtents.x, package.Position.x + packageHalfExtents.x);
+                float closestZ = Mathf.Clamp(self.Position.z, package.Position.z - packageHalfExtents.z, package.Position.z + packageHalfExtents.z);
                 Vector3 delta = self.Position - new Vector3(closestX, 0f, closestZ);
                 float distance = delta.magnitude;
                 if (distance >= WebPortConstants.PlayerRadius || distance <= 0.001f)
@@ -837,7 +838,7 @@ namespace Hackathon.WebPort
                 Vector3 delta = package.Position - obstacle.Position;
                 delta.y = 0f;
                 float distance = delta.magnitude;
-                float minimum = obstacle.Radius + WebPortConstants.BoxHalf;
+                float minimum = obstacle.Radius + GetPackageRadius(package);
                 if (distance < minimum && distance > 0.001f)
                 {
                     Vector3 normal = delta / distance;
@@ -861,7 +862,7 @@ namespace Hackathon.WebPort
                 Vector3 delta = package.Position - other.Position;
                 delta.y = 0f;
                 float distance = delta.magnitude;
-                float minimum = WebPortConstants.BoxHalf * 2f;
+                float minimum = GetPackageRadius(package) + GetPackageRadius(other);
                 if (distance > 0.001f && distance < minimum)
                 {
                     package.Position += delta / distance * (minimum - distance);
@@ -871,6 +872,16 @@ namespace Hackathon.WebPort
                     package.Position += new Vector3(UnityEngine.Random.Range(-minimum, minimum), 0f, UnityEngine.Random.Range(-minimum, minimum));
                 }
             }
+        }
+
+        private static Vector3 GetPackageHalfExtents(PackageState package)
+        {
+            return WebPortVisuals.Config.GetPackageCollisionHalfExtents(package.Kind);
+        }
+
+        private static float GetPackageRadius(PackageState package)
+        {
+            return WebPortVisuals.Config.GetPackageCollisionRadius(package.Kind);
         }
 
         private void CheckDelivery(PlayerState self, PackageState package, float now)

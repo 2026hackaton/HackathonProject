@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -305,9 +306,18 @@ namespace Hackathon.WebPort
         public PrefabTransform truckTransform = PrefabTransform.Identity;
         public PrefabTransform busTransform = PrefabTransform.Identity;
 
+        [Header("Package Gameplay Collision")]
+        [Tooltip("When enabled, package gameplay collision size is calculated from the replacement prefab bounds after transform overrides.")]
+        public bool packageCollisionMatchesPrefabBounds = true;
+        [Tooltip("Fallback gameplay collision size when no replacement prefab or measurable bounds exist.")]
+        public Vector3 fallbackPackageCollisionSize = new(24f, 24f, 24f);
+        [Tooltip("Extra padding added to package gameplay half extents.")]
+        [Min(0f)] public float packageCollisionPadding = 0f;
+
         [Header("Optional Replacement Materials")]
         public Material groundBaseMaterial;
         public Material crossGroundMaterial;
+        public Material boundaryWallMaterial;
         public Material startMarkerMaterial;
         public Material goalFillMaterial;
         public Material goalRingMaterial;
@@ -321,7 +331,15 @@ namespace Hackathon.WebPort
         public Material truckMaterial;
         public Material busMaterial;
 
+        [Header("Boundary Walls")]
+        public bool createBoundaryWalls = true;
+        [Min(1f)] public float boundaryWallHeight = 90f;
+        [Min(1f)] public float boundaryWallThickness = 28f;
+        [Min(0f)] public float boundaryWallPadding = 12f;
+
         [Header("Fallback Colors")]
+        [Tooltip("Optional skybox material for the WebPort camera. If empty, the camera uses pageBackground as a solid color.")]
+        public Material skyboxMaterial;
         public Color pageBackground = new(0.8745f, 0.9020f, 0.9137f, 1f);
         public Color groundBase = new(0.7255f, 0.7765f, 0.7882f, 1f);
         public Color startBlue = new(0.2039f, 0.5961f, 0.8588f, 1f);
@@ -339,6 +357,10 @@ namespace Hackathon.WebPort
         public Color wallColor = new(0.7529f, 0.4745f, 0.2471f, 1f);
         public Color rockColor = new(0.5529f, 0.4314f, 0.3882f, 1f);
         public Color truckColor = new(0.2039f, 0.2863f, 0.3686f, 1f);
+        public Color boundaryWallColor = new(0.4549f, 0.5020f, 0.5176f, 1f);
+
+        [NonSerialized] private Dictionary<PackageKind, Vector3> _packageHalfExtentsCache;
+        [NonSerialized] private Dictionary<PackageKind, float> _packageGroundOffsetCache;
 
         [Header("UI Theme")]
         [Tooltip("Optional root prefab for designer-authored UI. If empty, WebPort builds the default runtime UI.")]
@@ -558,6 +580,168 @@ namespace Hackathon.WebPort
                 PackageKind.Gravity => gravityPackageTransform,
                 _ => normalPackageTransform,
             };
+        }
+
+        public Vector3 GetPackageCollisionHalfExtents(PackageKind kind)
+        {
+            _packageHalfExtentsCache ??= new Dictionary<PackageKind, Vector3>();
+            if (_packageHalfExtentsCache.TryGetValue(kind, out Vector3 cached))
+                return cached;
+
+            Vector3 halfExtents = GetFallbackPackageCollisionHalfExtents();
+            if (packageCollisionMatchesPrefabBounds)
+            {
+                GameObject prefab = GetPackagePrefab(kind);
+                if (prefab != null && TryCalculatePackagePrefabBounds(kind, prefab, out Bounds bounds))
+                    halfExtents = bounds.extents;
+            }
+
+            float padding = Mathf.Max(packageCollisionPadding, 0f);
+            halfExtents += Vector3.one * padding;
+            halfExtents.x = Mathf.Max(halfExtents.x, 1f);
+            halfExtents.y = Mathf.Max(halfExtents.y, 1f);
+            halfExtents.z = Mathf.Max(halfExtents.z, 1f);
+            _packageHalfExtentsCache[kind] = halfExtents;
+            return halfExtents;
+        }
+
+        public float GetPackageCollisionRadius(PackageKind kind)
+        {
+            Vector3 halfExtents = GetPackageCollisionHalfExtents(kind);
+            return Mathf.Max(halfExtents.x, halfExtents.z);
+        }
+
+        public float GetPackageVisualGroundOffset(PackageKind kind)
+        {
+            _packageGroundOffsetCache ??= new Dictionary<PackageKind, float>();
+            if (_packageGroundOffsetCache.TryGetValue(kind, out float cached))
+                return cached;
+
+            float offset = GetFallbackPackageCollisionHalfExtents().y;
+            GameObject prefab = GetPackagePrefab(kind);
+            if (prefab != null && TryCalculatePackagePrefabBounds(kind, prefab, out Bounds bounds))
+                offset = Mathf.Max(-bounds.min.y, 0f);
+
+            _packageGroundOffsetCache[kind] = offset;
+            return offset;
+        }
+
+        private Vector3 GetFallbackPackageCollisionHalfExtents()
+        {
+            Vector3 size = fallbackPackageCollisionSize;
+            if (size == Vector3.zero)
+                size = new Vector3(WebPortConstants.BoxHalf * 2f, WebPortConstants.BoxHalf * 2f, WebPortConstants.BoxHalf * 2f);
+
+            return new Vector3(
+                Mathf.Max(size.x * 0.5f, 1f),
+                Mathf.Max(size.y * 0.5f, 1f),
+                Mathf.Max(size.z * 0.5f, 1f));
+        }
+
+        private bool TryCalculatePackagePrefabBounds(PackageKind kind, GameObject prefab, out Bounds bounds)
+        {
+            Matrix4x4 rootMatrix = CreatePackageVisualMatrix(kind, prefab);
+
+            if (TryCalculateColliderBounds(prefab, rootMatrix, out bounds))
+                return true;
+
+            return TryCalculateRendererBounds(prefab, rootMatrix, out bounds);
+        }
+
+        private bool TryCalculateRendererBounds(GameObject prefab, Matrix4x4 rootMatrix, out Bounds bounds)
+        {
+            bounds = default;
+            bool hasBounds = false;
+            Renderer[] renderers = prefab.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Renderer renderer = renderers[i];
+                Bounds localBounds = renderer.localBounds;
+                Matrix4x4 localToRoot = rootMatrix * prefab.transform.worldToLocalMatrix * renderer.transform.localToWorldMatrix;
+                EncapsulateTransformedBounds(ref bounds, ref hasBounds, localBounds, localToRoot);
+            }
+
+            return hasBounds;
+        }
+
+        private bool TryCalculateColliderBounds(GameObject prefab, Matrix4x4 rootMatrix, out Bounds bounds)
+        {
+            bounds = default;
+            bool hasBounds = false;
+            Collider[] colliders = prefab.GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < colliders.Length; i++)
+                TryEncapsulateColliderBounds(prefab, colliders[i], rootMatrix, ref bounds, ref hasBounds);
+
+            return hasBounds;
+        }
+
+        private Matrix4x4 CreatePackageVisualMatrix(PackageKind kind, GameObject prefab)
+        {
+            PrefabTransform transformOverride = GetPackageTransform(kind);
+            Vector3 scale = transformOverride.localScale == Vector3.zero ? Vector3.one : transformOverride.localScale;
+            return Matrix4x4.TRS(transformOverride.localPosition, Quaternion.Euler(transformOverride.localEulerAngles), scale);
+        }
+
+        private static void TryEncapsulateColliderBounds(GameObject prefab, Collider collider, Matrix4x4 rootMatrix, ref Bounds bounds, ref bool hasBounds)
+        {
+            Matrix4x4 localToRoot = rootMatrix * prefab.transform.worldToLocalMatrix * collider.transform.localToWorldMatrix;
+
+            if (collider is BoxCollider box)
+            {
+                EncapsulateTransformedBounds(ref bounds, ref hasBounds, new Bounds(box.center, box.size), localToRoot);
+                return;
+            }
+
+            if (collider is SphereCollider sphere)
+            {
+                float diameter = sphere.radius * 2f;
+                EncapsulateTransformedBounds(ref bounds, ref hasBounds, new Bounds(sphere.center, Vector3.one * diameter), localToRoot);
+                return;
+            }
+
+            if (collider is CapsuleCollider capsule)
+            {
+                Vector3 size = Vector3.one * (capsule.radius * 2f);
+                if (capsule.direction == 0)
+                    size.x = capsule.height;
+                else if (capsule.direction == 1)
+                    size.y = capsule.height;
+                else
+                    size.z = capsule.height;
+
+                EncapsulateTransformedBounds(ref bounds, ref hasBounds, new Bounds(capsule.center, size), localToRoot);
+                return;
+            }
+
+            if (collider is MeshCollider meshCollider && meshCollider.sharedMesh != null)
+                EncapsulateTransformedBounds(ref bounds, ref hasBounds, meshCollider.sharedMesh.bounds, localToRoot);
+        }
+
+        private static void EncapsulateTransformedBounds(ref Bounds bounds, ref bool hasBounds, Bounds localBounds, Matrix4x4 localToRoot)
+        {
+            Vector3 center = localBounds.center;
+            Vector3 extents = localBounds.extents;
+
+            EncapsulatePoint(ref bounds, ref hasBounds, localToRoot.MultiplyPoint3x4(center + new Vector3(-extents.x, -extents.y, -extents.z)));
+            EncapsulatePoint(ref bounds, ref hasBounds, localToRoot.MultiplyPoint3x4(center + new Vector3(-extents.x, -extents.y, extents.z)));
+            EncapsulatePoint(ref bounds, ref hasBounds, localToRoot.MultiplyPoint3x4(center + new Vector3(-extents.x, extents.y, -extents.z)));
+            EncapsulatePoint(ref bounds, ref hasBounds, localToRoot.MultiplyPoint3x4(center + new Vector3(-extents.x, extents.y, extents.z)));
+            EncapsulatePoint(ref bounds, ref hasBounds, localToRoot.MultiplyPoint3x4(center + new Vector3(extents.x, -extents.y, -extents.z)));
+            EncapsulatePoint(ref bounds, ref hasBounds, localToRoot.MultiplyPoint3x4(center + new Vector3(extents.x, -extents.y, extents.z)));
+            EncapsulatePoint(ref bounds, ref hasBounds, localToRoot.MultiplyPoint3x4(center + new Vector3(extents.x, extents.y, -extents.z)));
+            EncapsulatePoint(ref bounds, ref hasBounds, localToRoot.MultiplyPoint3x4(center + new Vector3(extents.x, extents.y, extents.z)));
+        }
+
+        private static void EncapsulatePoint(ref Bounds bounds, ref bool hasBounds, Vector3 point)
+        {
+            if (!hasBounds)
+            {
+                bounds = new Bounds(point, Vector3.zero);
+                hasBounds = true;
+                return;
+            }
+
+            bounds.Encapsulate(point);
         }
 
         public Material GetPackageMaterial(PackageKind kind)

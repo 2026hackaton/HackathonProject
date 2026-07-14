@@ -18,10 +18,23 @@ namespace Hackathon.WebPort
         {
             _camera = GetComponent<UnityEngine.Camera>();
             _camera.fieldOfView = 38f;
-            _camera.clearFlags = CameraClearFlags.SolidColor;
-            _camera.backgroundColor = WebPortVisuals.PageBackground;
+            ApplyBackground();
             _camera.nearClipPlane = 0.3f;
             _camera.farClipPlane = 2000f;
+        }
+
+        private void ApplyBackground()
+        {
+            WebPortVisualConfig config = WebPortVisuals.Config;
+            if (config.skyboxMaterial != null)
+            {
+                RenderSettings.skybox = config.skyboxMaterial;
+                _camera.clearFlags = CameraClearFlags.Skybox;
+                return;
+            }
+
+            _camera.clearFlags = CameraClearFlags.SolidColor;
+            _camera.backgroundColor = WebPortVisuals.PageBackground;
         }
 
         public void SetTarget(Transform newTarget)
