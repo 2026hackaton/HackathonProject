@@ -63,10 +63,23 @@ namespace Hackathon.WebPort
         public const float GravityPull = 40f;
         public const float ExtrapolateCapSeconds = 0.15f;
         public const float BoxHalf = 12f;
-        public const float BoxPushSpeed = 200f;
-        public const float FrictionRetain = 0.35f;
-        public const float ThrowGravity = 900f;
-        public const float ThrowVyFactor = 0.35f;
+        public const float BoxPushSpeed = 85f;
+        public const float FrictionRetain = 0.05f;
+        public const float ThrowGravity = 1750f;
+        public const float ThrowVyFactor = 0.18f;
+        public const float PackageExternalImpulseScale = 0.65f;
+        public const float PackageCollisionBounceRetain = 0.25f;
+        public const float PackageSpinVelocityScale = 0.35f;
+        public const float PackageSpinYawScale = 0.08f;
+        public const float PackageImpactSpinScale = 0.2f;
+        public const float PackageAirAngularRetain = 0.5f;
+        public const float PackageGroundAngularRetain = 0.01f;
+        public const float PackageGroundUprightLerp = 18f;
+        public const float PackageGroundSnapAngle = 0.2f;
+        public const float PackageGroundStopSpeed = 10f;
+        public const float PackageMaxAngularSpeed = 220f;
+        public const float PackageCarryLiftSpeed = 1400f;
+        public const float PackageCarryLiftAcceleration = 16000f;
 
         public const int SlotColumns = 3;
         public const int SlotRows = 3;

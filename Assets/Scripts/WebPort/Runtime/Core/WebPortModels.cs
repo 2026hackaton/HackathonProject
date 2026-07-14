@@ -105,6 +105,10 @@ namespace Hackathon.WebPort
         public Vector3 TargetPosition;
         public float TargetTime;
         public Vector3 Velocity;
+        public Vector3 Rotation;
+        public Vector3 RenderRotation;
+        public Vector3 TargetRotation;
+        public Vector3 AngularVelocity;
         public int? HeldBy;
         public int? OwnerId;
         public float Timer;
@@ -117,6 +121,10 @@ namespace Hackathon.WebPort
             Position = position;
             RenderPosition = position;
             TargetPosition = position;
+            Rotation = Vector3.zero;
+            RenderRotation = Vector3.zero;
+            TargetRotation = Vector3.zero;
+            AngularVelocity = Vector3.zero;
             Timer = kind == PackageKind.Bomb ? 4f : 0f;
         }
     }
@@ -214,6 +222,12 @@ namespace Hackathon.WebPort
         public float Vx;
         public float Vy;
         public float Vz;
+        public float Rx;
+        public float Ry;
+        public float Rz;
+        public float Avx;
+        public float Avy;
+        public float Avz;
         public int? HeldBy;
         public float Timer;
         public bool Delivered;
@@ -229,6 +243,12 @@ namespace Hackathon.WebPort
             ["vx"] = Vx,
             ["vy"] = Vy,
             ["vz"] = Vz,
+            ["rx"] = Rx,
+            ["ry"] = Ry,
+            ["rz"] = Rz,
+            ["avx"] = Avx,
+            ["avy"] = Avy,
+            ["avz"] = Avz,
             ["heldBy"] = HeldBy.HasValue ? (JToken)HeldBy.Value : JValue.CreateNull(),
             ["timer"] = Timer,
             ["delivered"] = Delivered,

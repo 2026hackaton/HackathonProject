@@ -28,6 +28,41 @@ namespace Hackathon.WebPort
                 target.localRotation = Quaternion.Euler(localEulerAngles);
                 target.localScale = localScale == Vector3.zero ? Vector3.one : localScale;
             }
+
+            public bool HasOverride()
+            {
+                bool hasPosition = localPosition.sqrMagnitude > 0.0001f;
+                bool hasRotation = localEulerAngles.sqrMagnitude > 0.0001f;
+                bool hasScale = localScale != Vector3.zero && (localScale - Vector3.one).sqrMagnitude > 0.0001f;
+                return hasPosition || hasRotation || hasScale;
+            }
+
+            public Matrix4x4 ToMatrix()
+            {
+                Vector3 scale = localScale == Vector3.zero ? Vector3.one : localScale;
+                return Matrix4x4.TRS(localPosition, Quaternion.Euler(localEulerAngles), scale);
+            }
+
+            public void ApplyRelativeTo(Transform target, Transform source)
+            {
+                target.localPosition = source.localPosition;
+                target.localRotation = source.localRotation;
+                target.localScale = source.localScale;
+
+                if (!HasOverride())
+                    return;
+
+                Vector3 scale = localScale == Vector3.zero ? Vector3.one : localScale;
+                target.localPosition += localPosition;
+                target.localRotation *= Quaternion.Euler(localEulerAngles);
+                target.localScale = Vector3.Scale(target.localScale, scale);
+            }
+
+            public Matrix4x4 ToMatrixRelativeTo(Transform source)
+            {
+                Matrix4x4 sourceMatrix = Matrix4x4.TRS(source.localPosition, source.localRotation, source.localScale);
+                return HasOverride() ? sourceMatrix * ToMatrix() : sourceMatrix;
+            }
         }
 
         [Serializable]
@@ -307,7 +342,7 @@ namespace Hackathon.WebPort
         public PrefabTransform busTransform = PrefabTransform.Identity;
 
         [Header("Package Gameplay Collision")]
-        [Tooltip("When enabled, package gameplay collision size is calculated from the replacement prefab bounds after transform overrides.")]
+        [Tooltip("When enabled, package gameplay collision size follows the replacement prefab. Authored Colliders are preferred; otherwise Renderer bounds are used.")]
         public bool packageCollisionMatchesPrefabBounds = true;
         [Tooltip("Fallback gameplay collision size when no replacement prefab or measurable bounds exist.")]
         public Vector3 fallbackPackageCollisionSize = new(24f, 24f, 24f);
@@ -582,6 +617,16 @@ namespace Hackathon.WebPort
             };
         }
 
+        public Quaternion GetPackageVisualBaseRotation(PackageKind kind)
+        {
+            GameObject prefab = GetPackagePrefab(kind);
+            Quaternion rotation = prefab != null ? prefab.transform.localRotation : Quaternion.identity;
+            PrefabTransform transformOverride = GetPackageTransform(kind);
+            return transformOverride.HasOverride()
+                ? rotation * Quaternion.Euler(transformOverride.localEulerAngles)
+                : rotation;
+        }
+
         public Vector3 GetPackageCollisionHalfExtents(PackageKind kind)
         {
             _packageHalfExtentsCache ??= new Dictionary<PackageKind, Vector3>();
@@ -678,8 +723,7 @@ namespace Hackathon.WebPort
         private Matrix4x4 CreatePackageVisualMatrix(PackageKind kind, GameObject prefab)
         {
             PrefabTransform transformOverride = GetPackageTransform(kind);
-            Vector3 scale = transformOverride.localScale == Vector3.zero ? Vector3.one : transformOverride.localScale;
-            return Matrix4x4.TRS(transformOverride.localPosition, Quaternion.Euler(transformOverride.localEulerAngles), scale);
+            return transformOverride.ToMatrixRelativeTo(prefab.transform);
         }
 
         private static void TryEncapsulateColliderBounds(GameObject prefab, Collider collider, Matrix4x4 rootMatrix, ref Bounds bounds, ref bool hasBounds)

@@ -191,6 +191,10 @@ namespace Hackathon.WebPort
                 packages[id] = new PackageState(id, kind, new Vector3(b["x"]!.Value<float>(), b["y"]!.Value<float>(), b["z"]!.Value<float>()))
                 {
                     Velocity = new Vector3(b["vx"]!.Value<float>(), b["vy"]!.Value<float>(), b["vz"]!.Value<float>()),
+                    Rotation = new Vector3(b["rx"]?.Value<float>() ?? 0f, b["ry"]?.Value<float>() ?? 0f, b["rz"]?.Value<float>() ?? 0f),
+                    RenderRotation = new Vector3(b["rx"]?.Value<float>() ?? 0f, b["ry"]?.Value<float>() ?? 0f, b["rz"]?.Value<float>() ?? 0f),
+                    TargetRotation = new Vector3(b["rx"]?.Value<float>() ?? 0f, b["ry"]?.Value<float>() ?? 0f, b["rz"]?.Value<float>() ?? 0f),
+                    AngularVelocity = new Vector3(b["avx"]?.Value<float>() ?? 0f, b["avy"]?.Value<float>() ?? 0f, b["avz"]?.Value<float>() ?? 0f),
                     HeldBy = b["heldBy"]!.Type == JTokenType.Null ? null : b["heldBy"]!.Value<int?>(),
                     Timer = b["timer"]?.Value<float>() ?? 0f,
                     Delivered = b["delivered"]?.Value<bool>() ?? false,

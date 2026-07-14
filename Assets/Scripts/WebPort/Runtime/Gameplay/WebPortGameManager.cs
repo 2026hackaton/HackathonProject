@@ -315,16 +315,29 @@ namespace Hackathon.WebPort
             float y = msg["y"]!.Value<float>();
             float z = msg["z"]!.Value<float>();
 
+            bool created = false;
             if (!_packages.TryGetValue(id, out PackageState package))
             {
                 package = new PackageState(id, PackageKindWire.FromWireString(msg["boxType"]!.Value<string>()), new Vector3(x, y, z));
                 _packages[id] = package;
+                created = true;
             }
 
             package.Position = new Vector3(x, y, z);
             package.TargetPosition = package.Position;
             package.TargetTime = now;
             package.Velocity = new Vector3(msg["vx"]!.Value<float>(), msg["vy"]!.Value<float>(), msg["vz"]!.Value<float>());
+            package.Rotation = new Vector3(
+                msg["rx"]?.Value<float>() ?? 0f,
+                msg["ry"]?.Value<float>() ?? 0f,
+                msg["rz"]?.Value<float>() ?? 0f);
+            if (created)
+                package.RenderRotation = package.Rotation;
+            package.TargetRotation = package.Rotation;
+            package.AngularVelocity = new Vector3(
+                msg["avx"]?.Value<float>() ?? 0f,
+                msg["avy"]?.Value<float>() ?? 0f,
+                msg["avz"]?.Value<float>() ?? 0f);
             package.Kind = PackageKindWire.FromWireString(msg["boxType"]!.Value<string>());
             package.HeldBy = msg["heldBy"]!.Type == JTokenType.Null ? null : msg["heldBy"]!.Value<int?>();
             package.Timer = msg["timer"]!.Value<float>();
@@ -406,6 +419,15 @@ namespace Hackathon.WebPort
 
             package.HeldBy = from;
             package.OwnerId = from;
+            package.Velocity = Vector3.zero;
+            PlayerState holder = _players.TryGetValue(from, out PlayerState remoteHolder) ? remoteHolder : null;
+            ResetPackageCarryRotation(package);
+            Vector3 carryStartPosition = holder != null
+                ? new Vector3(holder.Position.x, package.Position.y, holder.Position.z)
+                : package.Position;
+            package.Position = carryStartPosition;
+            package.RenderPosition = package.Position;
+            package.TargetPosition = package.Position;
         }
 
         private void OnPickupRejected(JObject msg)
@@ -415,6 +437,13 @@ namespace Hackathon.WebPort
             {
                 package.HeldBy = null;
                 package.OwnerId = null;
+                package.Velocity = Vector3.zero;
+                package.AngularVelocity = Vector3.zero;
+                package.Position = new Vector3(package.Position.x, 0f, package.Position.z);
+                package.RenderPosition = package.Position;
+                package.RenderRotation = package.Rotation;
+                package.TargetPosition = package.Position;
+                package.TargetRotation = package.Rotation;
             }
         }
 
@@ -556,6 +585,12 @@ namespace Hackathon.WebPort
                 Vx = package.Velocity.x,
                 Vy = package.Velocity.y,
                 Vz = package.Velocity.z,
+                Rx = package.Rotation.x,
+                Ry = package.Rotation.y,
+                Rz = package.Rotation.z,
+                Avx = package.AngularVelocity.x,
+                Avy = package.AngularVelocity.y,
+                Avz = package.AngularVelocity.z,
                 HeldBy = package.HeldBy,
                 Timer = package.Timer,
                 Delivered = package.Delivered,
@@ -765,6 +800,7 @@ namespace Hackathon.WebPort
                 {
                     package.OwnerId = self.Id;
                     package.Velocity = new Vector3(-normal.x * WebPortConstants.BoxPushSpeed, package.Velocity.y, -normal.z * WebPortConstants.BoxPushSpeed);
+                    AddSpinFromPlanarVelocity(package, package.Velocity, 1f);
                 }
             }
         }
@@ -780,10 +816,8 @@ namespace Hackathon.WebPort
         {
             if (package.HeldBy.HasValue)
             {
-                List<PackageState> siblings = _packages.Values.Where(p => p.HeldBy == package.HeldBy).OrderBy(p => p.Id).ToList();
-                int stackIndex = Mathf.Max(siblings.IndexOf(package), 0);
-                package.Position = new Vector3(self.Position.x, WebPortConstants.CarryHeight + stackIndex * WebPortConstants.BoxStackHeight, self.Position.z);
-                package.RenderPosition = package.Position;
+                PlayerState holder = _players.TryGetValue(package.HeldBy.Value, out PlayerState foundHolder) ? foundHolder : self;
+                SimulateHeldPackage(holder, package, GetHeldStackBottomY(package, package.HeldBy.Value), dt);
                 return;
             }
 
@@ -808,9 +842,175 @@ namespace Hackathon.WebPort
             package.Position = WebPortConstants.ClampToCross(package.Position, 10f);
             ResolvePackageObstacleCollision(package);
             ResolvePackagePackageCollision(package);
+            TickPackageRotation(package, dt);
             CheckDelivery(self, package, now);
             CheckPackageHitPlayers(package);
             TickBomb(package, now);
+        }
+
+        private static void SimulateHeldPackage(PlayerState holder, PackageState package, float targetY, float dt)
+        {
+            Vector3 position = new(holder.Position.x, package.Position.y, holder.Position.z);
+            Vector3 velocity = new(0f, package.Velocity.y, 0f);
+
+            if (position.y > targetY)
+            {
+                position += Vector3.up * velocity.y * dt;
+                velocity += Vector3.down * WebPortConstants.ThrowGravity * dt;
+
+                if (position.y <= targetY)
+                {
+                    position = new Vector3(position.x, targetY, position.z);
+                    velocity = Vector3.zero;
+                }
+            }
+            else if (position.y < targetY)
+            {
+                velocity.y = Mathf.MoveTowards(velocity.y, WebPortConstants.PackageCarryLiftSpeed, WebPortConstants.PackageCarryLiftAcceleration * dt);
+                position += Vector3.up * velocity.y * dt;
+
+                if (position.y >= targetY)
+                {
+                    position = new Vector3(position.x, targetY, position.z);
+                    velocity = Vector3.zero;
+                }
+            }
+            else
+            {
+                position = new Vector3(position.x, targetY, position.z);
+                velocity = Vector3.zero;
+            }
+
+            package.Position = position;
+            package.Velocity = velocity;
+            ResetPackageCarryRotation(package);
+            package.RenderPosition = position;
+        }
+
+        private float GetHeldStackBottomY(PackageState package, int holderId)
+        {
+            float bottomY = WebPortConstants.CarryHeight;
+            foreach (PackageState sibling in _packages.Values.Where(p => p.HeldBy == holderId).OrderBy(p => p.Id))
+            {
+                if (sibling == package)
+                    return bottomY;
+
+                bottomY += GetPackageStackHeight(sibling);
+            }
+
+            return bottomY;
+        }
+
+        private static float GetPackageStackHeight(PackageState package)
+        {
+            Vector3 halfExtents = GetPackageHalfExtents(package);
+            return Mathf.Max(halfExtents.y * 2f, 1f);
+        }
+
+        private static void ResetPackageCarryRotation(PackageState package)
+        {
+            package.Rotation = Vector3.zero;
+            package.RenderRotation = Vector3.zero;
+            package.TargetRotation = Vector3.zero;
+            package.AngularVelocity = Vector3.zero;
+        }
+
+        private static void TickPackageRotation(PackageState package, float dt)
+        {
+            bool grounded = package.Position.y <= 0.01f;
+            Vector3 planarVelocity = new(package.Velocity.x, 0f, package.Velocity.z);
+
+            if (!grounded)
+            {
+                if (package.AngularVelocity.sqrMagnitude > 0.01f)
+                    package.Rotation = NormalizeEuler(package.Rotation + package.AngularVelocity * dt);
+
+                package.AngularVelocity *= Mathf.Pow(WebPortConstants.PackageAirAngularRetain, dt);
+            }
+            else
+            {
+                if (planarVelocity.sqrMagnitude <= WebPortConstants.PackageGroundStopSpeed * WebPortConstants.PackageGroundStopSpeed)
+                    package.Velocity = new Vector3(0f, package.Velocity.y, 0f);
+
+                Quaternion currentRotation = Quaternion.Euler(package.Rotation);
+                if (Mathf.Abs(package.AngularVelocity.y) > 0.01f)
+                    currentRotation = Quaternion.AngleAxis(package.AngularVelocity.y * dt, Vector3.up) * currentRotation;
+
+                Quaternion restRotation = GetClosestPackageRestRotation(package.Kind, currentRotation);
+                float uprightBlend = 1f - Mathf.Exp(-WebPortConstants.PackageGroundUprightLerp * dt);
+                Quaternion settledRotation = Quaternion.Slerp(currentRotation, restRotation, uprightBlend);
+                if (Quaternion.Angle(settledRotation, restRotation) <= WebPortConstants.PackageGroundSnapAngle)
+                    settledRotation = restRotation;
+
+                package.Rotation = NormalizeEuler(settledRotation.eulerAngles);
+
+                float yawVelocity = package.AngularVelocity.y * Mathf.Pow(WebPortConstants.PackageGroundAngularRetain, dt);
+                package.AngularVelocity = new Vector3(0f, yawVelocity, 0f);
+            }
+
+            if (package.AngularVelocity.sqrMagnitude < 1f)
+                package.AngularVelocity = Vector3.zero;
+
+            package.RenderRotation = package.Rotation;
+        }
+
+        private static Quaternion GetClosestPackageRestRotation(PackageKind kind, Quaternion simulationRotation)
+        {
+            Quaternion baseRotation = WebPortVisuals.Config.GetPackageVisualBaseRotation(kind);
+            Quaternion visualRotation = baseRotation * simulationRotation;
+            Vector3 localUp = Quaternion.Inverse(visualRotation) * Vector3.up;
+            Vector3 faceNormal;
+
+            if (Mathf.Abs(localUp.x) >= Mathf.Abs(localUp.y) && Mathf.Abs(localUp.x) >= Mathf.Abs(localUp.z))
+                faceNormal = localUp.x >= 0f ? Vector3.right : Vector3.left;
+            else if (Mathf.Abs(localUp.y) >= Mathf.Abs(localUp.z))
+                faceNormal = localUp.y >= 0f ? Vector3.up : Vector3.down;
+            else
+                faceNormal = localUp.z >= 0f ? Vector3.forward : Vector3.back;
+
+            Quaternion alignFaceToGround = Quaternion.FromToRotation(visualRotation * faceNormal, Vector3.up);
+            Quaternion restingVisualRotation = alignFaceToGround * visualRotation;
+            return Quaternion.Inverse(baseRotation) * restingVisualRotation;
+        }
+
+        private static void AddSpinFromPlanarVelocity(PackageState package, Vector3 velocity, float scale)
+        {
+            Vector3 planarVelocity = new(velocity.x, 0f, velocity.z);
+            if (planarVelocity.sqrMagnitude < 1f)
+                return;
+
+            Vector3 rollAxis = Vector3.Cross(Vector3.up, planarVelocity.normalized);
+            float speed = planarVelocity.magnitude;
+            float yawSign = Mathf.Sin(package.Id * 12.9898f + planarVelocity.x * 0.031f + planarVelocity.z * 0.047f) >= 0f ? 1f : -1f;
+            Vector3 spin = rollAxis * speed * WebPortConstants.PackageSpinVelocityScale * scale;
+            spin += Vector3.up * speed * WebPortConstants.PackageSpinYawScale * yawSign * scale;
+            package.AngularVelocity = ClampAngularVelocity(package.AngularVelocity + spin);
+        }
+
+        private static void AddSpinFromImpact(PackageState package, Vector3 normal, float impactSpeed)
+        {
+            if (impactSpeed <= 1f)
+                return;
+
+            Vector3 tangentAxis = Vector3.Cross(normal, Vector3.up);
+            if (tangentAxis.sqrMagnitude <= 0.001f)
+                tangentAxis = Vector3.forward;
+
+            package.AngularVelocity = ClampAngularVelocity(package.AngularVelocity + tangentAxis.normalized * impactSpeed * WebPortConstants.PackageImpactSpinScale);
+        }
+
+        private static Vector3 ClampAngularVelocity(Vector3 angularVelocity)
+        {
+            float max = WebPortConstants.PackageMaxAngularSpeed;
+            return angularVelocity.sqrMagnitude > max * max ? angularVelocity.normalized * max : angularVelocity;
+        }
+
+        private static Vector3 NormalizeEuler(Vector3 euler)
+        {
+            return new Vector3(
+                Mathf.Repeat(euler.x + 180f, 360f) - 180f,
+                Mathf.Repeat(euler.y + 180f, 360f) - 180f,
+                Mathf.Repeat(euler.z + 180f, 360f) - 180f);
         }
 
         private void ApplyGravityPackages(PackageState package, float dt)
@@ -844,7 +1044,9 @@ namespace Hackathon.WebPort
                     Vector3 normal = delta / distance;
                     package.Position = obstacle.Position + normal * minimum + Vector3.up * package.Position.y;
                     float vn = Vector3.Dot(package.Velocity, normal);
-                    package.Velocity = (package.Velocity - 2f * vn * normal) * 0.6f;
+                    float impactSpeed = Mathf.Abs(vn);
+                    package.Velocity = (package.Velocity - 2f * vn * normal) * WebPortConstants.PackageCollisionBounceRetain;
+                    AddSpinFromImpact(package, normal, impactSpeed);
                 }
             }
         }
@@ -865,11 +1067,15 @@ namespace Hackathon.WebPort
                 float minimum = GetPackageRadius(package) + GetPackageRadius(other);
                 if (distance > 0.001f && distance < minimum)
                 {
-                    package.Position += delta / distance * (minimum - distance);
+                    Vector3 normal = delta / distance;
+                    package.Position += normal * (minimum - distance);
+                    float closingSpeed = Mathf.Max(-Vector3.Dot(package.Velocity - other.Velocity, normal), 0f);
+                    AddSpinFromImpact(package, normal, closingSpeed);
                 }
                 else if (distance <= 0.001f)
                 {
-                    package.Position += new Vector3(UnityEngine.Random.Range(-minimum, minimum), 0f, UnityEngine.Random.Range(-minimum, minimum));
+                    float angle = Mathf.Repeat(package.Id * 137.5f + other.Id * 53.3f, 360f) * Mathf.Deg2Rad;
+                    package.Position += new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * minimum;
                 }
             }
         }
@@ -896,6 +1102,7 @@ namespace Hackathon.WebPort
 
             package.Delivered = true;
             package.Velocity = Vector3.zero;
+            package.AngularVelocity = Vector3.zero;
             self.Deliveries += package.Kind == PackageKind.High ? 5 : 1;
             _deliveredSinceTruck++;
             AddEffect(EffectKind.Deliver, package.Position, now, 0.9f);
@@ -927,6 +1134,7 @@ namespace Hackathon.WebPort
                     continue;
 
                 package.Velocity = Vector3.zero;
+                package.AngularVelocity = Vector3.zero;
                 package.Position = new Vector3(package.Position.x, 0f, package.Position.z);
                 // Notify the target instead of stunning them directly - they apply it to
                 // themselves on receipt (OnHitReceived), same reasoning as push above.
@@ -975,16 +1183,25 @@ namespace Hackathon.WebPort
                 if (package.OwnerId == _selfId)
                 {
                     package.RenderPosition = package.Position;
+                    package.RenderRotation = package.Rotation;
                     continue;
                 }
 
                 float extrapSeconds = Mathf.Min(now - package.TargetTime, WebPortConstants.ExtrapolateCapSeconds);
                 float predictedX = package.TargetPosition.x + package.Velocity.x * extrapSeconds;
                 float predictedZ = package.TargetPosition.z + package.Velocity.z * extrapSeconds;
+                Vector3 predictedRotation = package.TargetRotation + package.AngularVelocity * extrapSeconds;
                 float renderX = Mathf.Lerp(package.RenderPosition.x, predictedX, lerpFactor);
                 float renderZ = Mathf.Lerp(package.RenderPosition.z, predictedZ, lerpFactor);
                 package.RenderPosition = new Vector3(renderX, package.TargetPosition.y, renderZ);
+                package.RenderRotation = LerpEuler(package.RenderRotation, predictedRotation, lerpFactor);
             }
+        }
+
+        private static Vector3 LerpEuler(Vector3 current, Vector3 target, float t)
+        {
+            Quaternion rotation = Quaternion.Slerp(Quaternion.Euler(current), Quaternion.Euler(target), t);
+            return NormalizeEuler(rotation.eulerAngles);
         }
 
         private void TryPickup()
@@ -1018,6 +1235,10 @@ namespace Hackathon.WebPort
             nearest.HeldBy = self.Id;
             nearest.OwnerId = self.Id;
             nearest.Velocity = Vector3.zero;
+            ResetPackageCarryRotation(nearest);
+            nearest.Position = new Vector3(self.Position.x, nearest.Position.y, self.Position.z);
+            nearest.RenderPosition = nearest.Position;
+            nearest.TargetPosition = nearest.Position;
             ClearSlotForPackage(nearest.Id);
             _transport.Send(new PickupCommand { Id = nearest.Id });
         }
@@ -1118,6 +1339,7 @@ namespace Hackathon.WebPort
                     Mathf.Cos(angle + spread) * packagePower,
                     packagePower * WebPortConstants.ThrowVyFactor,
                     Mathf.Sin(angle + spread) * packagePower);
+                AddSpinFromPlanarVelocity(package, package.Velocity, 1.25f + i * 0.12f);
                 SendBoxUpdate(package);
             }
         }
@@ -1161,7 +1383,9 @@ namespace Hackathon.WebPort
                 {
                     Vector3 direction = delta / distance;
                     float force = (WebPortConstants.BlastRadius - distance) * WebPortConstants.BlastScale;
-                    package.Velocity += direction * force;
+                    Vector3 impulse = direction * force * WebPortConstants.PackageExternalImpulseScale;
+                    package.Velocity += impulse;
+                    AddSpinFromPlanarVelocity(package, impulse, 1.1f);
                 }
             }
         }
@@ -1204,11 +1428,13 @@ namespace Hackathon.WebPort
                 if (package.HeldBy != playerId)
                     continue;
 
-                PlayerState holder = _players.TryGetValue(playerId, out PlayerState player) ? player : Self;
                 package.HeldBy = null;
                 package.OwnerId = playerId;
-                package.Position = new Vector3(holder.Position.x, WebPortConstants.CarryHeight, holder.Position.z);
-                package.Velocity = new Vector3(UnityEngine.Random.Range(-30f, 30f), 0f, UnityEngine.Random.Range(-30f, 30f));
+                package.Position = new Vector3(package.Position.x, Mathf.Max(package.Position.y, 0f), package.Position.z);
+                package.RenderPosition = package.Position;
+                package.RenderRotation = package.Rotation;
+                package.Velocity = new Vector3(0f, package.Velocity.y, 0f);
+                package.AngularVelocity = Vector3.zero;
                 // Send immediately rather than waiting for the throttled tick, so the box
                 // doesn't sit in a "still held" state on other clients for up to 33ms longer.
                 SendBoxUpdate(package);
@@ -1385,7 +1611,12 @@ namespace Hackathon.WebPort
             {
                 RenderPosition = source.RenderPosition,
                 TargetPosition = source.TargetPosition,
+                TargetTime = source.TargetTime,
                 Velocity = source.Velocity,
+                Rotation = source.Rotation,
+                RenderRotation = source.RenderRotation,
+                TargetRotation = source.TargetRotation,
+                AngularVelocity = source.AngularVelocity,
                 HeldBy = source.HeldBy,
                 OwnerId = source.OwnerId,
                 Timer = source.Timer,

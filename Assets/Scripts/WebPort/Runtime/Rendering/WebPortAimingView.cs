@@ -42,8 +42,8 @@ namespace Hackathon.WebPort
 
         private void UpdateThrowArc(PlayerState self, IEnumerable<PackageState> packages, Vector3 mouseWorld)
         {
-            bool holdingAny = packages.Any(p => p.HeldBy == self.Id);
-            bool active = self.ChargingThrow && holdingAny;
+            PackageState heldPackage = packages.Where(p => p.HeldBy == self.Id).OrderBy(p => p.Id).FirstOrDefault();
+            bool active = self.ChargingThrow && heldPackage != null;
             if (!active)
             {
                 for (int i = 0; i < DotCount; i++)
@@ -57,7 +57,8 @@ namespace Hackathon.WebPort
             float vx = Mathf.Cos(angle) * power;
             float vz = Mathf.Sin(angle) * power;
             float vy = power * WebPortConstants.ThrowVyFactor;
-            float y0 = WebPortConstants.CarryHeight;
+            Vector3 origin = heldPackage.RenderPosition;
+            float y0 = Mathf.Max(origin.y, 0f);
             float g = WebPortConstants.ThrowGravity;
             float disc = Mathf.Max(vy * vy + 2f * g * y0, 0f);
             float totalT = (vy + Mathf.Sqrt(disc)) / g;
@@ -70,9 +71,9 @@ namespace Hackathon.WebPort
                 Transform dot = _dots[i];
                 dot.gameObject.SetActive(true);
                 dot.position = new Vector3(
-                    self.Position.x + vx * t,
+                    origin.x + vx * t,
                     Mathf.Max(y0 + vy * t - 0.5f * g * t * t, 2f),
-                    self.Position.z + vz * t);
+                    origin.z + vz * t);
             }
         }
 

@@ -6,6 +6,8 @@ namespace Hackathon.WebPort
     {
         private readonly Transform _root;
         private GameObject _visual;
+        private Renderer[] _renderers = System.Array.Empty<Renderer>();
+        private Quaternion _visualBaseRotation = Quaternion.identity;
         private PackageKind _currentKind;
 
         public int Id { get; }
@@ -35,7 +37,10 @@ namespace Hackathon.WebPort
             if (holder != null)
                 position = new Vector3(holder.RenderPosition.x, package.RenderPosition.y, holder.RenderPosition.z);
 
-            _root.position = position + Vector3.up * WebPortVisuals.Config.GetPackageVisualGroundOffset(package.Kind);
+            if (_visual != null)
+                _visual.transform.localRotation = _visualBaseRotation * Quaternion.Euler(package.RenderRotation);
+
+            _root.position = position + Vector3.up * CalculateVisualGroundOffset(package.Kind);
         }
 
         public void Destroy()
@@ -52,10 +57,13 @@ namespace Hackathon.WebPort
             GameObject prefab = WebPortVisuals.Config.GetPackagePrefab(kind);
             if (prefab != null)
             {
-                _visual = Object.Instantiate(prefab, _root);
+                _visual = Object.Instantiate(prefab, _root, false);
                 _visual.name = "Visual";
-                WebPortVisuals.Config.GetPackageTransform(kind).ApplyTo(_visual.transform);
-                RemoveColliders(_visual);
+                WebPortVisualConfig.PrefabTransform transformOverride = WebPortVisuals.Config.GetPackageTransform(kind);
+                transformOverride.ApplyRelativeTo(_visual.transform, prefab.transform);
+                _visualBaseRotation = _visual.transform.localRotation;
+                _renderers = _visual.GetComponentsInChildren<Renderer>();
+                ConfigureRuntimeColliders(_visual, _renderers);
                 return;
             }
 
@@ -63,14 +71,87 @@ namespace Hackathon.WebPort
             _visual.name = "Visual";
             _visual.transform.SetParent(_root, false);
             _visual.transform.localScale = Vector3.one * 24f;
-            Object.Destroy(_visual.GetComponent<Collider>());
+            _visualBaseRotation = _visual.transform.localRotation;
+            _renderers = _visual.GetComponentsInChildren<Renderer>();
+            _visual.GetComponent<BoxCollider>().isTrigger = true;
             _visual.GetComponent<MeshRenderer>().sharedMaterial = WebPortVisuals.PackageMaterial(kind);
         }
 
-        private static void RemoveColliders(GameObject root)
+        private float CalculateVisualGroundOffset(PackageKind kind)
         {
-            foreach (Collider collider in root.GetComponentsInChildren<Collider>())
-                Object.Destroy(collider);
+            return TryCalculateRendererBounds(_root, _renderers, out Bounds bounds)
+                ? Mathf.Max(-bounds.min.y, 0f)
+                : WebPortVisuals.Config.GetPackageVisualGroundOffset(kind);
+        }
+
+        private static void ConfigureRuntimeColliders(GameObject visual, Renderer[] renderers)
+        {
+            bool hasUsableCollider = false;
+            foreach (Collider collider in visual.GetComponentsInChildren<Collider>(true))
+            {
+                if (collider is MeshCollider meshCollider && !meshCollider.convex)
+                {
+                    collider.enabled = false;
+                    continue;
+                }
+
+                collider.enabled = true;
+                collider.isTrigger = true;
+                hasUsableCollider = true;
+            }
+
+            if (hasUsableCollider || !TryCalculateRendererBounds(visual.transform, renderers, out Bounds bounds))
+                return;
+
+            BoxCollider generatedCollider = visual.AddComponent<BoxCollider>();
+            generatedCollider.center = bounds.center;
+            generatedCollider.size = new Vector3(
+                Mathf.Max(bounds.size.x, 0.01f),
+                Mathf.Max(bounds.size.y, 0.01f),
+                Mathf.Max(bounds.size.z, 0.01f));
+            generatedCollider.isTrigger = true;
+        }
+
+        private static bool TryCalculateRendererBounds(Transform relativeTo, Renderer[] renderers, out Bounds result)
+        {
+            result = default;
+            if (relativeTo == null || renderers == null || renderers.Length == 0)
+                return false;
+
+            bool hasBounds = false;
+            Matrix4x4 worldToRelative = relativeTo.worldToLocalMatrix;
+            foreach (Renderer renderer in renderers)
+            {
+                if (renderer == null)
+                    continue;
+
+                Bounds bounds = renderer.localBounds;
+                Matrix4x4 matrix = worldToRelative * renderer.transform.localToWorldMatrix;
+                Vector3 center = bounds.center;
+                Vector3 extents = bounds.extents;
+                for (int x = -1; x <= 1; x += 2)
+                {
+                    for (int y = -1; y <= 1; y += 2)
+                    {
+                        for (int z = -1; z <= 1; z += 2)
+                        {
+                            Vector3 corner = center + Vector3.Scale(extents, new Vector3(x, y, z));
+                            Vector3 point = matrix.MultiplyPoint3x4(corner);
+                            if (!hasBounds)
+                            {
+                                result = new Bounds(point, Vector3.zero);
+                                hasBounds = true;
+                            }
+                            else
+                            {
+                                result.Encapsulate(point);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return hasBounds;
         }
     }
 }
