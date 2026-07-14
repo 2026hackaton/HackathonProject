@@ -35,7 +35,7 @@ namespace Hackathon.WebPort
             if (holder != null)
                 position = new Vector3(holder.RenderPosition.x, package.RenderPosition.y, holder.RenderPosition.z);
 
-            _root.position = position + Vector3.up * 12f;
+            _root.position = position + Vector3.up * WebPortVisuals.Config.GetPackageVisualGroundOffset(package.Kind);
         }
 
         public void Destroy()
