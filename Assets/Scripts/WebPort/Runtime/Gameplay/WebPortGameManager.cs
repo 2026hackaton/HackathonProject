@@ -11,7 +11,7 @@ namespace Hackathon.WebPort
     public sealed class WebPortGameManager : MonoBehaviour
     {
         [SerializeField] private bool _useWebSocketTransport = true;
-        [SerializeField] private string _serverUrl = "ws://localhost:8081";
+        [SerializeField] private string _serverUrl = "ws://192.168.1.148:8081";
 
         private readonly Dictionary<int, PlayerState> _players = new();
         private readonly Dictionary<int, PackageState> _packages = new();

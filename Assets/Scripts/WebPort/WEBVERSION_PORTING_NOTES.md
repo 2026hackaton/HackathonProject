@@ -79,6 +79,17 @@ Visual replacement workflow:
   `playerSpriteLocalScale`. Reduce width/height or scale if newly imported
   Sprite frames look too large. These fields only affect visuals, not gameplay
   collision or movement.
+- Skybox is controlled by `skyboxMaterial` in `WebPortVisualConfig`. If it is
+  assigned, the WebPort camera uses `CameraClearFlags.Skybox` and applies that
+  material to `RenderSettings.skybox`. If it is empty, the camera keeps using
+  `pageBackground` as a solid color.
+- Indoor boundary walls are generated automatically when `createBoundaryWalls`
+  is enabled. The runtime calculates the rendered map bounds and places four
+  long visual walls around it. Wall height, thickness, padding, material, and
+  fallback color are controlled by `boundaryWallHeight`,
+  `boundaryWallThickness`, `boundaryWallPadding`, `boundaryWallMaterial`, and
+  `boundaryWallColor`. These walls are visual-only; colliders are removed so
+  gameplay remains controlled by WebPort movement code.
 - `uiPrefab` is optional. If it is empty, the game builds the default runtime UI.
   If it is assigned, the prefab is instantiated under the generated Canvas and
   drives Menu, Lobby, Results, and HUD through `WebPortUiPrefabView`.

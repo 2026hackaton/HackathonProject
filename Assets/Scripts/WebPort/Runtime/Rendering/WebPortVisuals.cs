@@ -40,6 +40,11 @@ namespace Hackathon.WebPort
             return Config.crossGroundMaterial != null ? Config.crossGroundMaterial : CreateLit(PageBackground);
         }
 
+        public static Material BoundaryWallMaterial()
+        {
+            return Config.boundaryWallMaterial != null ? Config.boundaryWallMaterial : CreateLit(Config.boundaryWallColor);
+        }
+
         public static Material StartMarkerMaterial(float fallbackAlpha)
         {
             if (Config.startMarkerMaterial != null)

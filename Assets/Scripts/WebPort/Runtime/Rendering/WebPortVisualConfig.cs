@@ -308,6 +308,7 @@ namespace Hackathon.WebPort
         [Header("Optional Replacement Materials")]
         public Material groundBaseMaterial;
         public Material crossGroundMaterial;
+        public Material boundaryWallMaterial;
         public Material startMarkerMaterial;
         public Material goalFillMaterial;
         public Material goalRingMaterial;
@@ -321,7 +322,15 @@ namespace Hackathon.WebPort
         public Material truckMaterial;
         public Material busMaterial;
 
+        [Header("Boundary Walls")]
+        public bool createBoundaryWalls = true;
+        [Min(1f)] public float boundaryWallHeight = 90f;
+        [Min(1f)] public float boundaryWallThickness = 28f;
+        [Min(0f)] public float boundaryWallPadding = 12f;
+
         [Header("Fallback Colors")]
+        [Tooltip("Optional skybox material for the WebPort camera. If empty, the camera uses pageBackground as a solid color.")]
+        public Material skyboxMaterial;
         public Color pageBackground = new(0.8745f, 0.9020f, 0.9137f, 1f);
         public Color groundBase = new(0.7255f, 0.7765f, 0.7882f, 1f);
         public Color startBlue = new(0.2039f, 0.5961f, 0.8588f, 1f);
@@ -339,6 +348,7 @@ namespace Hackathon.WebPort
         public Color wallColor = new(0.7529f, 0.4745f, 0.2471f, 1f);
         public Color rockColor = new(0.5529f, 0.4314f, 0.3882f, 1f);
         public Color truckColor = new(0.2039f, 0.2863f, 0.3686f, 1f);
+        public Color boundaryWallColor = new(0.4549f, 0.5020f, 0.5176f, 1f);
 
         [Header("UI Theme")]
         [Tooltip("Optional root prefab for designer-authored UI. If empty, WebPort builds the default runtime UI.")]

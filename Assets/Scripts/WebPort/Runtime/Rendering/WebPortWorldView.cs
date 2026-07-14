@@ -12,6 +12,7 @@ namespace Hackathon.WebPort
         {
             _root = root;
             CreateGround();
+            CreateBoundaryWalls();
             CreateMarkers();
             CreateObstacles();
         }
@@ -41,6 +42,61 @@ namespace Hackathon.WebPort
             plane.transform.localScale = new Vector3(scale.x, 0.08f, scale.z);
             plane.GetComponent<MeshRenderer>().sharedMaterial = material;
             Object.Destroy(plane.GetComponent<BoxCollider>());
+        }
+
+        private void CreateBoundaryWalls()
+        {
+            WebPortVisualConfig config = WebPortVisuals.Config;
+            if (!config.createBoundaryWalls)
+                return;
+
+            Bounds bounds = CalculateMapBounds();
+            float thickness = Mathf.Max(config.boundaryWallThickness, 1f);
+            float height = Mathf.Max(config.boundaryWallHeight, 1f);
+            float padding = Mathf.Max(config.boundaryWallPadding, 0f);
+            float centerY = height * 0.5f;
+            float minX = bounds.min.x - padding;
+            float maxX = bounds.max.x + padding;
+            float minZ = bounds.min.z - padding;
+            float maxZ = bounds.max.z + padding;
+            float width = maxX - minX + thickness * 2f;
+            float depth = maxZ - minZ + thickness * 2f;
+            Material material = WebPortVisuals.BoundaryWallMaterial();
+
+            CreateWall("Boundary Wall North", new Vector3(bounds.center.x, centerY, maxZ + thickness * 0.5f), new Vector3(width, height, thickness), material);
+            CreateWall("Boundary Wall South", new Vector3(bounds.center.x, centerY, minZ - thickness * 0.5f), new Vector3(width, height, thickness), material);
+            CreateWall("Boundary Wall East", new Vector3(maxX + thickness * 0.5f, centerY, bounds.center.z), new Vector3(thickness, height, depth), material);
+            CreateWall("Boundary Wall West", new Vector3(minX - thickness * 0.5f, centerY, bounds.center.z), new Vector3(thickness, height, depth), material);
+        }
+
+        private static Bounds CalculateMapBounds()
+        {
+            Bounds bounds = CreateRectBounds(Vector3.zero, WebPortConstants.ArmLength * 2f, WebPortConstants.ArmLength * 2f);
+            EncapsulateRect(ref bounds, Vector3.zero, WebPortConstants.ArmHalfWidth * 2f, WebPortConstants.ArmHalfWidth * 2f);
+            EncapsulateRect(ref bounds, Vector3.zero, WebPortConstants.ArmLength * 2f, WebPortConstants.ArmHalfWidth * 2f);
+            EncapsulateRect(ref bounds, Vector3.zero, WebPortConstants.ArmHalfWidth * 2f, WebPortConstants.ArmLength * 2f);
+            return bounds;
+        }
+
+        private static Bounds CreateRectBounds(Vector3 center, float width, float depth)
+        {
+            return new Bounds(center, new Vector3(width, 0.1f, depth));
+        }
+
+        private static void EncapsulateRect(ref Bounds bounds, Vector3 center, float width, float depth)
+        {
+            bounds.Encapsulate(CreateRectBounds(center, width, depth));
+        }
+
+        private void CreateWall(string name, Vector3 position, Vector3 scale, Material material)
+        {
+            GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            wall.name = name;
+            wall.transform.SetParent(_root, false);
+            wall.transform.position = position;
+            wall.transform.localScale = scale;
+            wall.GetComponent<MeshRenderer>().sharedMaterial = material;
+            Object.Destroy(wall.GetComponent<BoxCollider>());
         }
 
         private void CreateMarkers()
