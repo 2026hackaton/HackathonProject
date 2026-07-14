@@ -18,6 +18,7 @@ namespace Hackathon.WebPort
         public event Action<RoomStatePayload> RoomStateChanged;
         public event Action<GameStartPayload> GameStarted;
         public event Action<IReadOnlyList<ScoreEntry>> GameEnded;
+        public event Action<Newtonsoft.Json.Linq.JObject> GameMessageReceived;
 
         public int SelfId { get; private set; }
         public bool IsConnected { get; private set; }
@@ -87,7 +88,12 @@ namespace Hackathon.WebPort
 
         public void Send(GameClientCommand command)
         {
-            // No-op in the local adapter. A future WebSocket adapter will serialize these commands.
+            // No-op in the local adapter: there are no other clients to relay gameplay commands to.
+        }
+
+        public void Pump()
+        {
+            // No-op: the local adapter raises its events synchronously, nothing to drain.
         }
 
         public void Dispose()

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
@@ -9,6 +10,9 @@ namespace Hackathon.WebPort
 {
     public sealed class WebPortGameManager : MonoBehaviour
     {
+        [SerializeField] private bool _useWebSocketTransport = true;
+        [SerializeField] private string _serverUrl = "ws://localhost:8081";
+
         private readonly Dictionary<int, PlayerState> _players = new();
         private readonly Dictionary<int, PackageState> _packages = new();
         private readonly List<PackageSlot> _slots = new();
@@ -33,6 +37,8 @@ namespace Hackathon.WebPort
         private int _deliveredSinceTruck;
         private float _goalTimer;
         private float _sessionEndTime;
+        private float _sessionRemainMs;
+        private float _sendTimer;
         private float _truckBannerUntil;
         private bool _cameraTargetBound;
 
@@ -42,7 +48,8 @@ namespace Hackathon.WebPort
         {
             Application.targetFrameRate = 60;
             SetupSceneObjects();
-            SetupTransport(new LocalGameTransport());
+            IGameTransport transport = _useWebSocketTransport ? (IGameTransport)new WebSocketGameTransport(_serverUrl) : new LocalGameTransport();
+            SetupTransport(transport);
             _transport.Connect();
             _ui.ShowMenu(null);
         }
@@ -55,12 +62,15 @@ namespace Hackathon.WebPort
                 _transport.RoomStateChanged -= OnRoomStateChanged;
                 _transport.GameStarted -= OnGameStarted;
                 _transport.GameEnded -= OnGameEnded;
+                _transport.GameMessageReceived -= OnGameMessage;
                 _transport.Dispose();
             }
         }
 
         private void Update()
         {
+            _transport?.Pump();
+
             if (_phase != GamePhase.Playing || Self == null)
                 return;
 
@@ -143,6 +153,7 @@ namespace Hackathon.WebPort
             _transport.RoomStateChanged += OnRoomStateChanged;
             _transport.GameStarted += OnGameStarted;
             _transport.GameEnded += OnGameEnded;
+            _transport.GameMessageReceived += OnGameMessage;
         }
 
         private void JoinRoom(string code)
@@ -187,6 +198,7 @@ namespace Hackathon.WebPort
             _goalIndex = 0;
             _goalTimer = 0f;
             _sessionEndTime = payload.SessionEndTime;
+            _sessionRemainMs = WebPortConstants.SessionDurationSeconds * 1000f;
             _nextPackageId = 0;
             _deliveredSinceTruck = 0;
             _truckBannerUntil = -1f;
@@ -222,6 +234,213 @@ namespace Hackathon.WebPort
         {
             _phase = GamePhase.Results;
             _ui.ShowResults(results, _selfId, _selfId == _hostId, _roomCode);
+        }
+
+        // Dispatches in-session relay messages (everything server.js forwards besides the
+        // room-lifecycle ones already covered by Connected/RoomStateChanged/GameStarted/
+        // GameEnded). Mirrors client/src/game/gameState.js's onMessage switch 1:1.
+        private void OnGameMessage(JObject msg)
+        {
+            if (_phase != GamePhase.Playing)
+                return;
+
+            float now = Time.time;
+            switch (msg["type"]?.Value<string>())
+            {
+                case "spawn": OnSpawnReceived(msg); break;
+                case "move": OnMoveReceived(msg, now); break;
+                case "boxUpdate": OnBoxUpdateReceived(msg, now); break;
+                case "grab": OnGrabReceived(msg, now); break;
+                case "push": OnPushReceived(msg, now); break;
+                case "hit": OnHitReceived(msg); break;
+                case "explode": OnExplodeReceived(msg, now); break;
+                case "pickup": OnPickupReceived(msg); break;
+                case "pickupRejected": OnPickupRejected(msg); break;
+                case "truckDeparted": OnTruckDeparted(now); break;
+                case "goalChanged": OnGoalChanged(msg); break;
+                case "tick": OnTick(msg); break;
+                case "leave": OnLeave(msg); break;
+            }
+        }
+
+        private void OnSpawnReceived(JObject msg)
+        {
+            int id = msg["id"]!.Value<int>();
+            PackageKind kind = PackageKindWire.FromWireString(msg["boxType"]!.Value<string>());
+            Vector3 position = new(msg["x"]!.Value<float>(), msg["y"]!.Value<float>(), msg["z"]!.Value<float>());
+            _packages[id] = new PackageState(id, kind, position);
+        }
+
+        private void OnMoveReceived(JObject msg, float now)
+        {
+            int from = msg["from"]!.Value<int>();
+            if (from == _selfId)
+                return;
+
+            float newX = msg["x"]!.Value<float>();
+            float newZ = msg["z"]!.Value<float>();
+
+            if (!_players.TryGetValue(from, out PlayerState player))
+            {
+                player = new PlayerState(from, new Vector3(newX, 0f, newZ));
+                _players[from] = player;
+            }
+            else if (player.TargetTime > 0f)
+            {
+                float dtS = now - player.TargetTime;
+                if (dtS > 0.01f)
+                    player.Velocity = new Vector3((newX - player.TargetPosition.x) / dtS, 0f, (newZ - player.TargetPosition.z) / dtS);
+            }
+
+            player.TargetPosition = new Vector3(newX, 0f, newZ);
+            player.TargetTime = now;
+            player.Angle = msg["angle"]!.Value<float>();
+            player.Stunned = msg["stunned"]?.Value<bool>() ?? false;
+            player.Rolling = msg["rolling"]?.Value<bool>() ?? false;
+            player.Deliveries = msg["deliveries"]?.Value<int>() ?? 0;
+        }
+
+        private void OnBoxUpdateReceived(JObject msg, float now)
+        {
+            int from = msg["from"]!.Value<int>();
+            if (from == _selfId)
+                return;
+
+            int id = msg["id"]!.Value<int>();
+            // 내가 지금 실제로 들고 있는 상자는 경합으로 잘못 도착한 메시지로 뺏기지 않는다.
+            if (_packages.TryGetValue(id, out PackageState existing) && existing.HeldBy == _selfId)
+                return;
+
+            float x = msg["x"]!.Value<float>();
+            float y = msg["y"]!.Value<float>();
+            float z = msg["z"]!.Value<float>();
+
+            if (!_packages.TryGetValue(id, out PackageState package))
+            {
+                package = new PackageState(id, PackageKindWire.FromWireString(msg["boxType"]!.Value<string>()), new Vector3(x, y, z));
+                _packages[id] = package;
+            }
+
+            package.Position = new Vector3(x, y, z);
+            package.TargetPosition = package.Position;
+            package.TargetTime = now;
+            package.Velocity = new Vector3(msg["vx"]!.Value<float>(), msg["vy"]!.Value<float>(), msg["vz"]!.Value<float>());
+            package.Kind = PackageKindWire.FromWireString(msg["boxType"]!.Value<string>());
+            package.HeldBy = msg["heldBy"]!.Type == JTokenType.Null ? null : msg["heldBy"]!.Value<int?>();
+            package.Timer = msg["timer"]!.Value<float>();
+            package.Delivered = msg["delivered"]!.Value<bool>();
+            package.OwnerId = from;
+        }
+
+        private void OnGrabReceived(JObject msg, float now)
+        {
+            if (msg["targetId"]!.Value<int>() != _selfId)
+                return;
+
+            PlayerState self = Self;
+            if (self == null)
+                return;
+
+            self.GrabbedBy = msg["from"]!.Value<int>();
+            self.GrabTimer = WebPortConstants.GrabDuration;
+            AddEffect(EffectKind.GrabFlash, self.Position, now, 0.3f);
+        }
+
+        private void OnPushReceived(JObject msg, float now)
+        {
+            if (msg["targetId"]!.Value<int>() != _selfId)
+                return;
+
+            PlayerState self = Self;
+            if (self == null)
+                return;
+
+            float dirX = msg["dirX"]!.Value<float>();
+            float dirZ = msg["dirZ"]!.Value<float>();
+            float scale = msg["scale"]?.Value<float>() ?? 1f;
+
+            self.ExternalVelocity += new Vector3(dirX, 0f, dirZ) * WebPortConstants.PushForce * scale;
+            AddEffect(EffectKind.Impact, self.Position, now, 0.35f);
+
+            int heldNow = CountHeld(self.Id);
+            self.Instability = 100f;
+            if (heldNow > 0 && !self.Stunned)
+                Stun(self, WebPortConstants.StumbleStunDuration, WebPortConstants.StumbleStunDuration * 0.5f);
+
+            DropHeldBoxes(self.Id);
+        }
+
+        private void OnHitReceived(JObject msg)
+        {
+            if (msg["targetId"]!.Value<int>() != _selfId)
+                return;
+
+            PlayerState self = Self;
+            if (self == null)
+                return;
+
+            Stun(self, WebPortConstants.StunDuration, 0f);
+            DropHeldBoxes(self.Id);
+        }
+
+        private void OnExplodeReceived(JObject msg, float now)
+        {
+            Vector3 position = new(msg["x"]!.Value<float>(), 0f, msg["z"]!.Value<float>());
+            ApplyBlast(position, now);
+            AddEffect(EffectKind.Explosion, position, now, 0.5f);
+            _packages.Remove(msg["id"]!.Value<int>());
+        }
+
+        private void OnPickupReceived(JObject msg)
+        {
+            int from = msg["from"]!.Value<int>();
+            if (from == _selfId)
+                return;
+
+            int id = msg["id"]!.Value<int>();
+            if (!_packages.TryGetValue(id, out PackageState package))
+            {
+                package = new PackageState(id, PackageKind.Normal, Vector3.zero);
+                _packages[id] = package;
+            }
+
+            package.HeldBy = from;
+            package.OwnerId = from;
+        }
+
+        private void OnPickupRejected(JObject msg)
+        {
+            int id = msg["id"]!.Value<int>();
+            if (_packages.TryGetValue(id, out PackageState package) && package.HeldBy == _selfId)
+            {
+                package.HeldBy = null;
+                package.OwnerId = null;
+            }
+        }
+
+        private void OnTruckDeparted(float now)
+        {
+            foreach (int id in _packages.Where(p => p.Value.Delivered).Select(p => p.Key).ToList())
+                _packages.Remove(id);
+
+            _renderSystem.PlayTruck();
+            _truckBannerUntil = now + 2.2f;
+        }
+
+        private void OnGoalChanged(JObject msg)
+        {
+            JObject goal = (JObject)msg["goal"];
+            _goal = new Vector3(goal["x"]!.Value<float>(), 0f, goal["z"]!.Value<float>());
+        }
+
+        private void OnTick(JObject msg)
+        {
+            _sessionRemainMs = msg["remainMs"]!.Value<float>();
+        }
+
+        private void OnLeave(JObject msg)
+        {
+            _players.Remove(msg["id"]!.Value<int>());
         }
 
         private void UpdateMouseWorld()
@@ -274,12 +493,19 @@ namespace Hackathon.WebPort
             ResolvePlayerObstacleCollision(self);
             ResolvePlayerPackageCollision(self);
             SimulateOwnedPackages(self, dt, now);
+            SendNetworkState(dt, self);
             SmoothRenderPositions(dt);
             CleanupEffects(now);
         }
 
+        // Goal rotation and session-end are server-authoritative when networked (driven by
+        // 'goalChanged'/'gameEnded' messages via OnGameMessage/OnGameEnded). The local transport
+        // has no real server, so it simulates both itself here.
         private void TickSession(float now)
         {
+            if (_localTransport == null)
+                return;
+
             _goalTimer += Time.deltaTime;
             if (_goalTimer >= WebPortConstants.GoalRotateSeconds)
             {
@@ -288,8 +514,52 @@ namespace Hackathon.WebPort
                 _goal = WebPortConstants.GoalPositions[_goalIndex];
             }
 
+            _sessionRemainMs = Mathf.Max(_sessionEndTime - now, 0f) * 1000f;
             if (now >= _sessionEndTime)
                 EndGame();
+        }
+
+        // Throttled to ~30/s to match the reference client (gameState.js tickGame's send block).
+        private void SendNetworkState(float dt, PlayerState self)
+        {
+            _sendTimer += dt;
+            if (_sendTimer <= 0.033f)
+                return;
+
+            _sendTimer = 0f;
+            _transport.Send(new MoveCommand
+            {
+                X = self.Position.x,
+                Z = self.Position.z,
+                Angle = self.Angle,
+                Stunned = self.Stunned,
+                Rolling = self.Rolling,
+                Deliveries = self.Deliveries,
+            });
+
+            foreach (PackageState package in _packages.Values)
+            {
+                if (package.OwnerId == _selfId)
+                    SendBoxUpdate(package);
+            }
+        }
+
+        private void SendBoxUpdate(PackageState package)
+        {
+            _transport.Send(new BoxUpdateCommand
+            {
+                Id = package.Id,
+                BoxType = PackageKindWire.ToWireString(package.Kind),
+                X = package.Position.x,
+                Y = package.Position.y,
+                Z = package.Position.z,
+                Vx = package.Velocity.x,
+                Vy = package.Velocity.y,
+                Vz = package.Velocity.z,
+                HeldBy = package.HeldBy,
+                Timer = package.Timer,
+                Delivered = package.Delivered,
+            });
         }
 
         private void TickRefills(float now)
@@ -647,7 +917,9 @@ namespace Hackathon.WebPort
 
                 package.Velocity = Vector3.zero;
                 package.Position = new Vector3(package.Position.x, 0f, package.Position.z);
-                Stun(player, WebPortConstants.StunDuration, 0f);
+                // Notify the target instead of stunning them directly - they apply it to
+                // themselves on receipt (OnHitReceived), same reasoning as push above.
+                _transport.Send(new HitCommand { TargetId = player.Id, X = package.Position.x, Z = package.Position.z });
                 break;
             }
         }
@@ -666,18 +938,42 @@ namespace Hackathon.WebPort
             _packages.Remove(package.Id);
         }
 
+        // Remote players/packages are dead-reckoned from their last known position + estimated
+        // velocity, then smoothed toward that prediction (mirrors gameState.js tickGame's
+        // "다른 플레이어: 추정 속도로 외삽(dead-reckoning) 후 LERP" block).
         private void SmoothRenderPositions(float dt)
         {
+            float now = Time.time;
+            float lerpFactor = 1f - Mathf.Pow(0.65f, dt * 60f);
+
             foreach (PlayerState player in _players.Values)
             {
                 if (player.Id == _selfId)
+                {
                     player.RenderPosition = player.Position;
-                else
-                    player.RenderPosition = Vector3.Lerp(player.RenderPosition, player.TargetPosition, 1f - Mathf.Pow(0.65f, dt * 60f));
+                    continue;
+                }
+
+                float extrapSeconds = Mathf.Min(now - player.TargetTime, WebPortConstants.ExtrapolateCapSeconds);
+                Vector3 predicted = player.TargetPosition + player.Velocity * extrapSeconds;
+                player.RenderPosition = Vector3.Lerp(player.RenderPosition, predicted, lerpFactor);
             }
 
             foreach (PackageState package in _packages.Values)
-                package.RenderPosition = Vector3.Lerp(package.RenderPosition, package.Position, package.OwnerId == _selfId ? 1f : 0.35f);
+            {
+                if (package.OwnerId == _selfId)
+                {
+                    package.RenderPosition = package.Position;
+                    continue;
+                }
+
+                float extrapSeconds = Mathf.Min(now - package.TargetTime, WebPortConstants.ExtrapolateCapSeconds);
+                float predictedX = package.TargetPosition.x + package.Velocity.x * extrapSeconds;
+                float predictedZ = package.TargetPosition.z + package.Velocity.z * extrapSeconds;
+                float renderX = Mathf.Lerp(package.RenderPosition.x, predictedX, lerpFactor);
+                float renderZ = Mathf.Lerp(package.RenderPosition.z, predictedZ, lerpFactor);
+                package.RenderPosition = new Vector3(renderX, package.TargetPosition.y, renderZ);
+            }
         }
 
         private void TryPickup()
@@ -706,10 +1002,13 @@ namespace Hackathon.WebPort
             if (nearest == null)
                 return;
 
+            // Optimistic local claim; the server may still reject this via 'pickupRejected'
+            // if another client's pickup for the same box arrived first (see OnPickupRejected).
             nearest.HeldBy = self.Id;
             nearest.OwnerId = self.Id;
             nearest.Velocity = Vector3.zero;
             ClearSlotForPackage(nearest.Id);
+            _transport.Send(new PickupCommand { Id = nearest.Id });
         }
 
         private void DoGrab(float now)
@@ -726,11 +1025,12 @@ namespace Hackathon.WebPort
             if (target == null)
                 return;
 
-            target.GrabbedBy = self.Id;
-            target.GrabTimer = WebPortConstants.GrabDuration;
+            // Only track the drag locally; GrabbedBy/GrabTimer on the target belong to their
+            // own client and are set there when they receive this 'grab' message (OnGrabReceived).
             self.DraggingId = target.Id;
             self.DragTimer = WebPortConstants.GrabDuration;
             AddEffect(EffectKind.GrabFlash, target.Position, now, 0.3f);
+            _transport.Send(new GrabCommand { TargetId = target.Id });
         }
 
         private void StartPushCharge(float now)
@@ -775,10 +1075,11 @@ namespace Hackathon.WebPort
                 if (diff > WebPortConstants.PushArcHalfAngle)
                     continue;
 
+                // Only send the push; the actual knockback/instability/drop is applied on the
+                // target's own client when they receive it (OnPushReceived) - mirrors gameState.js,
+                // where a client never mutates another player's authoritative state directly.
                 Vector3 direction = delta / distance;
-                target.ExternalVelocity += direction * WebPortConstants.PushForce * scale;
-                target.Instability = 100f;
-                DropHeldBoxes(target.Id);
+                _transport.Send(new PushCommand { TargetId = target.Id, DirX = direction.x, DirZ = direction.z, Scale = scale });
                 AddEffect(EffectKind.Impact, target.Position, now, 0.35f);
             }
         }
@@ -806,33 +1107,40 @@ namespace Hackathon.WebPort
                     Mathf.Cos(angle + spread) * packagePower,
                     packagePower * WebPortConstants.ThrowVyFactor,
                     Mathf.Sin(angle + spread) * packagePower);
+                SendBoxUpdate(package);
             }
         }
 
+        // Every client that owns a bomb detonates it locally and broadcasts 'explode'; every
+        // client that receives 'explode' (including this one, for its own bomb) calls this
+        // again. So each call must only affect this client's own player + owned packages -
+        // never reach into other players' state directly (mirrors gameState.js applyBlast,
+        // which only ever touches state.me and packages it owns).
         private void ApplyBlast(Vector3 position, float now)
         {
-            foreach (PlayerState player in _players.Values)
+            PlayerState self = Self;
+            if (self != null)
             {
-                Vector3 delta = player.Position - position;
+                Vector3 delta = self.Position - position;
                 delta.y = 0f;
                 float distance = delta.magnitude;
-                if (distance >= WebPortConstants.BlastRadius)
-                    continue;
-
-                Vector3 direction = distance > 0.001f ? delta / distance : Vector3.forward;
-                float force = (WebPortConstants.BlastRadius - distance) * WebPortConstants.BlastScale;
-                if (distance < WebPortConstants.DirectHitRadius)
+                if (distance < WebPortConstants.BlastRadius)
                 {
-                    force *= WebPortConstants.BombDirectScale;
-                    Stun(player, WebPortConstants.BombStunDuration, WebPortConstants.BombStunDuration);
-                }
+                    Vector3 direction = distance > 0.001f ? delta / distance : Vector3.forward;
+                    float force = (WebPortConstants.BlastRadius - distance) * WebPortConstants.BlastScale;
+                    if (distance < WebPortConstants.DirectHitRadius)
+                    {
+                        force *= WebPortConstants.BombDirectScale;
+                        Stun(self, WebPortConstants.BombStunDuration, WebPortConstants.BombStunDuration);
+                    }
 
-                player.ExternalVelocity += direction * force;
+                    self.ExternalVelocity += direction * force;
+                }
             }
 
             foreach (PackageState package in _packages.Values)
             {
-                if (package.HeldBy.HasValue || package.Delivered)
+                if (package.OwnerId != _selfId || package.HeldBy.HasValue || package.Delivered)
                     continue;
 
                 Vector3 delta = package.Position - position;
@@ -842,7 +1150,6 @@ namespace Hackathon.WebPort
                 {
                     Vector3 direction = delta / distance;
                     float force = (WebPortConstants.BlastRadius - distance) * WebPortConstants.BlastScale;
-                    package.OwnerId = _selfId;
                     package.Velocity += direction * force;
                 }
             }
@@ -888,9 +1195,12 @@ namespace Hackathon.WebPort
 
                 PlayerState holder = _players.TryGetValue(playerId, out PlayerState player) ? player : Self;
                 package.HeldBy = null;
-                package.OwnerId = _selfId;
+                package.OwnerId = playerId;
                 package.Position = new Vector3(holder.Position.x, WebPortConstants.CarryHeight, holder.Position.z);
                 package.Velocity = new Vector3(UnityEngine.Random.Range(-30f, 30f), 0f, UnityEngine.Random.Range(-30f, 30f));
+                // Send immediately rather than waiting for the throttled tick, so the box
+                // doesn't sit in a "still held" state on other clients for up to 33ms longer.
+                SendBoxUpdate(package);
             }
         }
 
@@ -1008,7 +1318,7 @@ namespace Hackathon.WebPort
             Vector3 goalDelta = _goal - self.Position;
             float bearing = Mathf.Atan2(goalDelta.x, -goalDelta.z) * Mathf.Rad2Deg;
             int goalDistance = Mathf.RoundToInt(new Vector2(goalDelta.x, goalDelta.z).magnitude);
-            float remain = Mathf.Max(_sessionEndTime - Time.time, 0f);
+            float remain = _sessionRemainMs / 1000f;
             List<ScoreEntry> scores = _players.Values
                 .Select(p => new ScoreEntry(p.Id, p.Deliveries))
                 .OrderByDescending(s => s.Deliveries)
@@ -1027,9 +1337,12 @@ namespace Hackathon.WebPort
                 Time.time < _truckBannerUntil);
         }
 
+        // Networked sessions end when the server broadcasts 'gameEnded' (see OnGameEnded via
+        // IGameTransport.GameEnded) - the client never decides this for itself. Only the local
+        // transport, which has no real server behind it, ends its own session here.
         private void EndGame()
         {
-            if (_phase != GamePhase.Playing)
+            if (_phase != GamePhase.Playing || _localTransport == null)
                 return;
 
             List<ScoreEntry> results = _players.Values
@@ -1037,10 +1350,7 @@ namespace Hackathon.WebPort
                 .OrderByDescending(s => s.Deliveries)
                 .ToList();
 
-            if (_localTransport != null)
-                _localTransport.EndGame(results);
-            else
-                OnGameEnded(results);
+            _localTransport.EndGame(results);
         }
 
         private static PlayerState CopyPlayer(PlayerState source)
