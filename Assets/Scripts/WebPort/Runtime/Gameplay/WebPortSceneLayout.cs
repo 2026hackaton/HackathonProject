@@ -22,6 +22,9 @@ namespace Hackathon.WebPort
         [SerializeField] private Light directionalLight;
         [SerializeField] private EventSystem eventSystem;
         [SerializeField] private WebPortUiController uiController;
+        [SerializeField] private PackageSupplySequence supplySequence;
+        [SerializeField] private PackageRefillNotification refillNotification;
+        [SerializeField] private DeliveryDoorController deliveryDoorController;
 
         [Header("World Roots")]
         [SerializeField] private Transform worldRoot;
@@ -47,6 +50,9 @@ namespace Hackathon.WebPort
         public Light DirectionalLight => directionalLight;
         public EventSystem EventSystem => eventSystem;
         public WebPortUiController UiController => uiController;
+        public PackageSupplySequence SupplySequence => supplySequence;
+        public PackageRefillNotification RefillNotification => refillNotification;
+        public DeliveryDoorController DeliveryDoorController => deliveryDoorController;
         public Transform WorldRoot => worldRoot;
         public Transform StaticWorldRoot => staticWorldRoot;
         public Transform PlayersRoot => playersRoot;
@@ -124,6 +130,18 @@ namespace Hackathon.WebPort
             if (uiController == null)
             {
                 message = "WebPortSceneLayout is missing WebPortUiController.";
+                return false;
+            }
+
+            if (supplySequence == null)
+            {
+                message = "WebPortSceneLayout is missing PackageSupplySequence.";
+                return false;
+            }
+
+            if (deliveryDoorController == null)
+            {
+                message = "WebPortSceneLayout is missing DeliveryDoorController.";
                 return false;
             }
 

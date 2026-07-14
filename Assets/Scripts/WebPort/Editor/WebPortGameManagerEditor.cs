@@ -5,6 +5,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
+using UnityEngine.UI;
 
 namespace Hackathon.WebPort.Editor
 {
@@ -81,12 +82,15 @@ namespace Hackathon.WebPort.Editor
             Light light = EnsureLight(services);
             EventSystem eventSystem = EnsureEventSystem(services);
             WebPortUiController ui = CreateUiController(services);
+            PackageRefillNotification notification = CreateRefillNotification(services);
 
             Transform startPoint = CreateAnchor(anchors, "Start Point", WebPortConstants.Start);
             Transform[] goalPoints = CreateGoalPoints(goalsRoot);
             Transform[] spawnPoints = CreatePackageSpawnPoints(spawnRoot, startPoint.position);
             WebPortObstacleEntry[] obstacles = CreateObstacles(staticWorld, obstacleRoot);
             Transform goalMarker = CreateGoalMarker(staticWorld, goalPoints[0].position);
+            PackageSupplySequence supplySequence = CreateSupplySequence(staticWorld, config, notification);
+            DeliveryDoorController deliveryDoorController = CreateDeliveryDoors(staticWorld, goalPoints);
             Transform truck = CreateVehicle(vehicles, "Truck", config.truckPrefab, config.truckTransform, new Vector3(50f, 30f, 26f), WebPortVisuals.CreateLit(config.truckColor, true));
             Transform bus = CreateVehicle(vehicles, "Bus", config.busPrefab, config.busTransform, new Vector3(60f, 34f, 30f), WebPortVisuals.CreateLit(WebPortVisuals.Yellow));
 
@@ -101,6 +105,9 @@ namespace Hackathon.WebPort.Editor
             Set(layoutObject, "directionalLight", light);
             Set(layoutObject, "eventSystem", eventSystem);
             Set(layoutObject, "uiController", ui);
+            Set(layoutObject, "supplySequence", supplySequence);
+            Set(layoutObject, "refillNotification", notification);
+            Set(layoutObject, "deliveryDoorController", deliveryDoorController);
             Set(layoutObject, "worldRoot", world);
             Set(layoutObject, "staticWorldRoot", staticWorld);
             Set(layoutObject, "playersRoot", players);
@@ -245,6 +252,127 @@ namespace Hackathon.WebPort.Editor
             GameObject obj = new("WebPort UI");
             obj.transform.SetParent(parent, false);
             return obj.AddComponent<WebPortUiController>();
+        }
+
+        private static PackageRefillNotification CreateRefillNotification(Transform parent)
+        {
+            GameObject canvasObject = new("Package Refill Notification Canvas");
+            canvasObject.transform.SetParent(parent, false);
+            Canvas canvas = canvasObject.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 120;
+            CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1280f, 720f);
+            canvasObject.AddComponent<GraphicRaycaster>();
+
+            GameObject panel = new("Notification Panel");
+            panel.transform.SetParent(canvasObject.transform, false);
+            RectTransform panelRect = panel.AddComponent<RectTransform>();
+            panelRect.anchorMin = panelRect.anchorMax = panelRect.pivot = new Vector2(0.5f, 1f);
+            panelRect.sizeDelta = new Vector2(420f, 54f);
+            Image panelImage = panel.AddComponent<Image>();
+            panelImage.color = new Color(0.1f, 0.18f, 0.22f, 0.92f);
+
+            GameObject textObject = new("Message");
+            textObject.transform.SetParent(panel.transform, false);
+            RectTransform textRect = textObject.AddComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = new Vector2(18f, 6f);
+            textRect.offsetMax = new Vector2(-18f, -6f);
+            Text text = textObject.AddComponent<Text>();
+            text.text = "새로운 택배가 도착합니다!";
+            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.fontSize = 19;
+            text.fontStyle = FontStyle.Bold;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = Color.white;
+            text.resizeTextForBestFit = true;
+            text.resizeTextMinSize = 12;
+            text.resizeTextMaxSize = 19;
+
+            PackageRefillNotification notification = canvasObject.AddComponent<PackageRefillNotification>();
+            SerializedObject serialized = new(notification);
+            Set(serialized, "notificationPanel", panelRect);
+            Set(serialized, "messageText", text);
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            panel.SetActive(false);
+            return notification;
+        }
+
+        private static PackageSupplySequence CreateSupplySequence(Transform parent, WebPortVisualConfig config, PackageRefillNotification notification)
+        {
+            Transform dock = CreateChild(parent, "Left Package Supply Door");
+            dock.position = WebPortConstants.Start + new Vector3(-122f, 0f, 0f);
+            dock.rotation = CreateDoorFacingCenterRotation(dock.position);
+
+            Transform leftDoor = CreateDoorPanel(dock, "Supply Door Left", new Vector3(-22f, 34f, 0f), new Vector3(42f, 68f, 12f), WebPortVisuals.BoundaryWallMaterial());
+            Transform rightDoor = CreateDoorPanel(dock, "Supply Door Right", new Vector3(22f, 34f, 0f), new Vector3(42f, 68f, 12f), WebPortVisuals.BoundaryWallMaterial());
+            Transform dropOrigin = CreateChild(dock, "Truck Drop Origin");
+            dropOrigin.localPosition = new Vector3(0f, 0f, 70f);
+            Transform truck = CreateSupplyTruck(dock, config);
+
+            PackageSupplySequence sequence = dock.gameObject.AddComponent<PackageSupplySequence>();
+            SerializedObject serialized = new(sequence);
+            Vector3 leftClosed = leftDoor.localPosition;
+            Vector3 rightClosed = rightDoor.localPosition;
+            Set(serialized, "leftDoor", leftDoor);
+            Set(serialized, "rightDoor", rightDoor);
+            Set(serialized, "truck", truck);
+            Set(serialized, "dropOrigin", dropOrigin);
+            Set(serialized, "refillNotification", notification);
+            SetVector(serialized, "leftDoorClosedLocalPosition", leftClosed);
+            SetVector(serialized, "rightDoorClosedLocalPosition", rightClosed);
+            SetVector(serialized, "leftDoorOpenLocalPosition", leftClosed + Vector3.left * 34f);
+            SetVector(serialized, "rightDoorOpenLocalPosition", rightClosed + Vector3.right * 34f);
+            SetVector(serialized, "truckHiddenLocalPosition", new Vector3(0f, 34f, -110f));
+            SetVector(serialized, "truckActiveLocalPosition", new Vector3(0f, 34f, 18f));
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            return sequence;
+        }
+
+        private static DeliveryDoorController CreateDeliveryDoors(Transform parent, Transform[] goalPoints)
+        {
+            Transform root = CreateChild(parent, "Delivery Target Doors");
+            DeliveryDoorController controller = root.gameObject.AddComponent<DeliveryDoorController>();
+            DeliveryDoorController.DeliveryDoorEntry[] entries = new DeliveryDoorController.DeliveryDoorEntry[goalPoints.Length];
+            for (int i = 0; i < goalPoints.Length; i++)
+            {
+                Vector3 goal = goalPoints[i].position;
+
+                Transform doorRoot = CreateChild(root, $"Delivery Door {i}");
+                doorRoot.position = goal;
+                doorRoot.rotation = CreateDoorFacingCenterRotation(goal);
+
+                Transform leftDoor = CreateDoorPanel(doorRoot, "Left Door", new Vector3(-24f, 32f, 0f), new Vector3(42f, 64f, 12f), WebPortVisuals.BoundaryWallMaterial());
+                Transform rightDoor = CreateDoorPanel(doorRoot, "Right Door", new Vector3(24f, 32f, 0f), new Vector3(42f, 64f, 12f), WebPortVisuals.BoundaryWallMaterial());
+                Transform conveyor = CreateDoorPanel(doorRoot, "Conveyor Belt", new Vector3(0f, 5f, -10f), new Vector3(54f, 10f, 72f), WebPortVisuals.CreateLit(WebPortVisuals.Config.muted));
+                BoxCollider trigger = doorRoot.gameObject.AddComponent<BoxCollider>();
+                trigger.isTrigger = true;
+                trigger.center = new Vector3(0f, 12f, 72f);
+                trigger.size = new Vector3(WebPortConstants.GoalRadius * 2f, 24f, WebPortConstants.GoalRadius * 2f);
+                trigger.enabled = false;
+
+                entries[i] = new DeliveryDoorController.DeliveryDoorEntry
+                {
+                    leftDoor = leftDoor,
+                    rightDoor = rightDoor,
+                    leftDoorClosedLocalPosition = leftDoor.localPosition,
+                    rightDoorClosedLocalPosition = rightDoor.localPosition,
+                    leftDoorOpenLocalPosition = leftDoor.localPosition + Vector3.left * 30f,
+                    rightDoorOpenLocalPosition = rightDoor.localPosition + Vector3.right * 30f,
+                    conveyor = conveyor,
+                    conveyorHiddenLocalPosition = conveyor.localPosition,
+                    conveyorActiveLocalPosition = new Vector3(0f, 5f, 72f),
+                    deliveryTrigger = trigger,
+                };
+            }
+
+            SerializedObject serialized = new(controller);
+            SetDeliveryDoorEntries(serialized, entries);
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            return controller;
         }
 
         private static void CreateGround(Transform parent)
@@ -420,6 +548,88 @@ namespace Hackathon.WebPort.Editor
             return root;
         }
 
+        private static Quaternion CreateDoorFacingCenterRotation(Vector3 worldPosition)
+        {
+            Vector3 directionToCenter = -new Vector3(worldPosition.x, 0f, worldPosition.z);
+            if (directionToCenter.sqrMagnitude <= 0.001f)
+                directionToCenter = Vector3.forward;
+
+            directionToCenter.Normalize();
+            return Quaternion.LookRotation(directionToCenter, Vector3.up);
+        }
+
+        private static Transform CreateDoorPanel(Transform parent, string name, Vector3 localPosition, Vector3 localScale, Material material)
+        {
+            Transform root = CreateChild(parent, name);
+            root.localPosition = localPosition;
+            GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            visual.name = "Visual";
+            visual.transform.SetParent(root, false);
+            visual.transform.localScale = localScale;
+            visual.GetComponent<MeshRenderer>().sharedMaterial = material;
+            Object.DestroyImmediate(visual.GetComponent<Collider>());
+            return root;
+        }
+
+        private static Transform CreateSupplyTruck(Transform parent, WebPortVisualConfig config)
+        {
+            Transform root = CreateChild(parent, "Supply Truck 2D");
+            root.localPosition = new Vector3(0f, 34f, -110f);
+            Sprite truckSprite = FindTruckSprite();
+            if (truckSprite != null)
+            {
+                SpriteRenderer renderer = root.gameObject.AddComponent<SpriteRenderer>();
+                renderer.sprite = truckSprite;
+                renderer.sortingOrder = 20;
+                root.localScale = Vector3.one * 42f;
+                root.localRotation = Quaternion.Euler(60f, 0f, 0f);
+            }
+            else if (config.truckPrefab != null)
+            {
+                GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(config.truckPrefab, root);
+                instance.name = "Visual";
+                config.truckTransform.ApplyTo(instance.transform);
+                RemoveColliders(instance);
+            }
+            else
+            {
+                GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                visual.name = "Visual";
+                visual.transform.SetParent(root, false);
+                visual.transform.localScale = new Vector3(50f, 30f, 26f);
+                visual.GetComponent<MeshRenderer>().sharedMaterial = WebPortVisuals.CreateLit(config.truckColor, true);
+                Object.DestroyImmediate(visual.GetComponent<Collider>());
+            }
+
+            root.gameObject.SetActive(false);
+            return root;
+        }
+
+        private static Sprite FindTruckSprite()
+        {
+            string[] spriteGuids = AssetDatabase.FindAssets("truck t:Sprite", new[] { "Assets" });
+            foreach (string guid in spriteGuids)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                Sprite sprite = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+                if (sprite != null)
+                    return sprite;
+            }
+
+            string[] textureGuids = AssetDatabase.FindAssets("truck t:Texture2D", new[] { "Assets" });
+            foreach (string guid in textureGuids)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                foreach (Object asset in AssetDatabase.LoadAllAssetsAtPath(path))
+                {
+                    if (asset is Sprite sprite)
+                        return sprite;
+                }
+            }
+
+            return null;
+        }
+
         private static Transform CreateAnchor(Transform parent, string name, Vector3 position)
         {
             Transform anchor = CreateChild(parent, name);
@@ -457,6 +667,13 @@ namespace Hackathon.WebPort.Editor
                 property.objectReferenceValue = value;
         }
 
+        private static void SetVector(SerializedObject serializedObject, string propertyName, Vector3 value)
+        {
+            SerializedProperty property = serializedObject.FindProperty(propertyName);
+            if (property != null)
+                property.vector3Value = value;
+        }
+
         private static void SetArray(SerializedObject serializedObject, string propertyName, Transform[] values)
         {
             SerializedProperty property = serializedObject.FindProperty(propertyName);
@@ -475,6 +692,27 @@ namespace Hackathon.WebPort.Editor
                 element.FindPropertyRelative("root").objectReferenceValue = values[i].root;
                 element.FindPropertyRelative("kind").enumValueIndex = (int)values[i].kind;
                 element.FindPropertyRelative("radius").floatValue = values[i].radius;
+            }
+        }
+
+        private static void SetDeliveryDoorEntries(SerializedObject serializedObject, DeliveryDoorController.DeliveryDoorEntry[] values)
+        {
+            SerializedProperty property = serializedObject.FindProperty("doors");
+            property.arraySize = values.Length;
+            for (int i = 0; i < values.Length; i++)
+            {
+                DeliveryDoorController.DeliveryDoorEntry value = values[i];
+                SerializedProperty element = property.GetArrayElementAtIndex(i);
+                element.FindPropertyRelative("leftDoor").objectReferenceValue = value.leftDoor;
+                element.FindPropertyRelative("rightDoor").objectReferenceValue = value.rightDoor;
+                element.FindPropertyRelative("leftDoorClosedLocalPosition").vector3Value = value.leftDoorClosedLocalPosition;
+                element.FindPropertyRelative("rightDoorClosedLocalPosition").vector3Value = value.rightDoorClosedLocalPosition;
+                element.FindPropertyRelative("leftDoorOpenLocalPosition").vector3Value = value.leftDoorOpenLocalPosition;
+                element.FindPropertyRelative("rightDoorOpenLocalPosition").vector3Value = value.rightDoorOpenLocalPosition;
+                element.FindPropertyRelative("conveyor").objectReferenceValue = value.conveyor;
+                element.FindPropertyRelative("conveyorHiddenLocalPosition").vector3Value = value.conveyorHiddenLocalPosition;
+                element.FindPropertyRelative("conveyorActiveLocalPosition").vector3Value = value.conveyorActiveLocalPosition;
+                element.FindPropertyRelative("deliveryTrigger").objectReferenceValue = value.deliveryTrigger;
             }
         }
     }
