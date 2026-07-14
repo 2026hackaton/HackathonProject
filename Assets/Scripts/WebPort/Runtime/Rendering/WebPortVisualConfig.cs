@@ -442,14 +442,16 @@ namespace Hackathon.WebPort
 
         public bool TryGetPlayerTextureSheetFrame(bool holding, bool side, bool moving, float now, out Texture2D texture, out Vector2 scale, out Vector2 offset)
         {
-            texture = GetLegacyPlayerTexture(holding, side, moving);
+            texture = GetLegacyPlayerTexture(holding, side, moving, out bool useSheetFrames);
             scale = Vector2.one;
             offset = Vector2.zero;
 
             if (texture == null)
                 return false;
 
-            CalculateLegacyTextureSheetUv(now, out scale, out offset);
+            if (useSheetFrames)
+                CalculateLegacyTextureSheetUv(now, out scale, out offset);
+
             return true;
         }
 
@@ -479,7 +481,7 @@ namespace Hackathon.WebPort
             return side ? sideSpriteSheets : frontSpriteSheets;
         }
 
-        private Texture2D GetLegacyPlayerTexture(bool holding, bool side, bool moving)
+        private Texture2D GetLegacyPlayerTexture(bool holding, bool side, bool moving, out bool useSheetFrames)
         {
             Texture2D primary;
             Texture2D fallback;
@@ -490,24 +492,36 @@ namespace Hackathon.WebPort
                 {
                     primary = moving ? sideHoldingMoveTexture : sideHoldingIdleTexture;
                     fallback = moving ? sideHoldingIdleTexture : sideHoldingMoveTexture;
-                    return primary != null ? primary : fallback;
+                    return ResolveLegacyPlayerTexture(primary, fallback, moving, out useSheetFrames);
                 }
 
                 primary = moving ? frontHoldingMoveTexture : frontHoldingIdleTexture;
                 fallback = moving ? frontHoldingIdleTexture : frontHoldingMoveTexture;
-                return primary != null ? primary : fallback;
+                return ResolveLegacyPlayerTexture(primary, fallback, moving, out useSheetFrames);
             }
 
             if (side)
             {
                 primary = moving ? sideMoveTexture : sideIdleTexture;
                 fallback = moving ? sideIdleTexture : sideMoveTexture;
-                return primary != null ? primary : fallback;
+                return ResolveLegacyPlayerTexture(primary, fallback, moving, out useSheetFrames);
             }
 
             primary = moving ? frontMoveTexture : frontIdleTexture;
             fallback = moving ? frontIdleTexture : frontMoveTexture;
-            return primary != null ? primary : fallback;
+            return ResolveLegacyPlayerTexture(primary, fallback, moving, out useSheetFrames);
+        }
+
+        private static Texture2D ResolveLegacyPlayerTexture(Texture2D primary, Texture2D fallback, bool primaryUsesSheetFrames, out bool useSheetFrames)
+        {
+            if (primary != null)
+            {
+                useSheetFrames = primaryUsesSheetFrames;
+                return primary;
+            }
+
+            useSheetFrames = !primaryUsesSheetFrames;
+            return fallback;
         }
 
         private void CalculateLegacyTextureSheetUv(float now, out Vector2 scale, out Vector2 offset)
