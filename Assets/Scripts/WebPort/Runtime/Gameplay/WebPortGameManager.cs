@@ -353,60 +353,69 @@ namespace Hackathon.WebPort
             return new ServerSpawnPackage(id, kind, position, velocity, rotation, angularVelocity, heldBy, timer, delivered);
         }
 
+        // spawn 메시지는 도착 즉시 진짜 PackageState를 만든다 - 논리적 상태(존재 여부/PickupLocked/
+        // 위치)가 로컬 트럭 연출 코루틴의 타이밍에 종속되면, 다른 클라이언트가 그 코루틴이 아직
+        // 안 끝난 사이에 pickup 메시지를 받아 엉뚱한 자리표시자 패키지를 만들었다가 나중에
+        // 코루틴이 그걸 덮어써버리는 디싱크가 난다. _pendingServerSpawns/코루틴은 이제 순수하게
+        // "트럭 문 열고 닫는 연출을 언제 재생할지"만 판단하는 용도로 남는다.
         private void QueueServerSupplySpawn(ServerSpawnPackage spawn)
         {
             if (_packages.ContainsKey(spawn.Id))
                 return;
+
+            Vector3 dropPosition = ComputeSupplyDropPosition(spawn.Position);
+            _packages[spawn.Id] = CreatePackageFromServerSpawn(spawn, dropPosition, true);
+            AssignSlotToPackage(spawn.Position, spawn.Id);
 
             _pendingServerSpawns.Add(spawn);
             if (_serverSupplyBatchRoutine == null)
                 _serverSupplyBatchRoutine = StartCoroutine(FlushServerSupplySpawns());
         }
 
+        private Vector3 ComputeSupplyDropPosition(Vector3 basePosition)
+        {
+            float dropHeight = _supplySequence != null ? _supplySequence.DropHeight : 0f;
+            if (dropHeight <= 0.01f)
+                return basePosition;
+
+            float jitterRadius = _supplySequence != null ? _supplySequence.PlanarJitter : 0f;
+            Vector2 jitter = UnityEngine.Random.insideUnitCircle * jitterRadius;
+            return new Vector3(basePosition.x + jitter.x, dropHeight, basePosition.z + jitter.y);
+        }
+
         private IEnumerator FlushServerSupplySpawns()
         {
             yield return null;
 
-            List<ServerSpawnPackage> spawns = new(_pendingServerSpawns);
+            int count = _pendingServerSpawns.Count;
             _pendingServerSpawns.Clear();
             _serverSupplyBatchRoutine = null;
-            if (spawns.Count == 0)
+            if (count == 0)
                 yield break;
 
             bool initial = _waitingForInitialServerSupply;
             _waitingForInitialServerSupply = false;
-            PlayServerSupply(spawns, !initial, initial ? OpenInitialTargetDoor : null);
+            PlayServerSupply(!initial, initial ? OpenInitialTargetDoor : null);
         }
 
-        private void PlayServerSupply(IReadOnlyList<ServerSpawnPackage> spawns, bool refill, Action completed)
+        // 패키지는 이미 QueueServerSupplySpawn에서 만들어졌으므로, 여기서는 문/트럭 연출만
+        // 재생한다(PackageSupplySequence의 스폰-콜백 인자를 안 쓰는 게 핵심).
+        private void PlayServerSupply(bool refill, Action completed)
         {
-            List<Vector3> positions = new(spawns.Count);
-            for (int i = 0; i < spawns.Count; i++)
-                positions.Add(spawns[i].Position);
-
             bool started = _supplySequence != null && (refill
-                ? _supplySequence.PlayRefillSupply(positions, SpawnServerPackage, completed)
-                : _supplySequence.PlayInitialSupply(positions, SpawnServerPackage, completed));
+                ? _supplySequence.PlayRefillSupply(Array.Empty<Vector3>(), null, completed)
+                : _supplySequence.PlayInitialSupply(Array.Empty<Vector3>(), null, completed));
 
             if (!started)
-            {
-                for (int i = 0; i < spawns.Count; i++)
-                    SpawnServerPackage(i, positions[i]);
                 completed?.Invoke();
-            }
-
-            void SpawnServerPackage(int index, Vector3 dropPosition)
-            {
-                if (index < 0 || index >= spawns.Count)
-                    return;
-
-                ServerSpawnPackage spawn = spawns[index];
-                PackageState package = CreatePackageFromServerSpawn(spawn, dropPosition, true);
-                _packages[package.Id] = package;
-                AssignSlotToPackage(spawn.Position, package.Id);
-            }
         }
 
+        // supply(트럭) 낙하로 생성되는 패키지는 항상 방장(_hostId)이 소유한다 - 방장 클라이언트는
+        // 기존 SimulateOwnedPackages 경로를 그대로 타서 낙하를 시뮬레이션하고 boxUpdate로
+        // 브로드캐스트하며, 나머지 클라이언트는 그 값을 기존 외삽/보간 경로로 따라간다. 모든
+        // 클라이언트가 낙하 물리를 각자 계산하지 않으므로(가능한 것도 지금의 단순 수직낙하뿐이라,
+        // 나중에 상자끼리 부딪히는 실제 물리를 넣으면 그마저도 안 맞게 됨) 착지 위치가 갈라질
+        // 일이 없다.
         private PackageState CreatePackageFromServerSpawn(ServerSpawnPackage spawn, Vector3 position, bool spawnedFromSupply)
         {
             PackageState package = new(spawn.Id, spawn.Kind, position)
@@ -417,6 +426,7 @@ namespace Hackathon.WebPort
                 TargetRotation = spawn.Rotation,
                 AngularVelocity = spawn.AngularVelocity,
                 HeldBy = spawn.HeldBy,
+                OwnerId = spawnedFromSupply ? _hostId : null,
                 Timer = spawn.Timer,
                 Delivered = spawn.Delivered,
                 PickupLocked = spawnedFromSupply && position.y > 0.01f,
@@ -629,16 +639,30 @@ namespace Hackathon.WebPort
             _players.Remove(msg["id"]!.Value<int>());
         }
 
+        // 카메라가 낮은 각도의 3인칭 시점이라 마우스를 지면(Y=0)에 직접 레이캐스트하면, 화면
+        // 위쪽/수평선 근처를 조준할 때 광선이 지면과 거의 평행하거나 아예 안 만나서 조준 방향이
+        // 튀거나 멈춰버린다(밀치기/던지기 방향이 마우스와 안 맞던 원인). 그래서 절대 좌표 대신
+        // "플레이어 화면 위치 → 마우스 화면 위치"의 스크린 방향을, WASD 이동과 동일한 카메라
+        // 기준 변환(GetCameraRelativeMove)으로 월드 방향으로 바꿔서 조준한다.
         private void UpdateMouseWorld()
         {
             if (_camera == null || Mouse.current == null)
                 return;
 
-            Vector2 screen = Mouse.current.position.ReadValue();
-            Ray ray = _camera.ScreenPointToRay(screen);
-            Plane plane = new(Vector3.up, Vector3.zero);
-            if (plane.Raycast(ray, out float distance))
-                _mouseWorld = ray.GetPoint(distance);
+            PlayerState self = Self;
+            if (self == null)
+                return;
+
+            Vector2 screenSelf = _camera.WorldToScreenPoint(self.Position);
+            Vector2 screenDelta = Mouse.current.position.ReadValue() - screenSelf;
+            if (screenDelta.sqrMagnitude < 0.01f)
+                return;
+
+            Vector3 aimDirection = GetCameraRelativeMove(screenDelta.normalized);
+            if (aimDirection.sqrMagnitude < 0.0001f)
+                return;
+
+            _mouseWorld = self.Position + aimDirection.normalized * 300f;
         }
 
         private void HandleInput(float now)
@@ -679,7 +703,6 @@ namespace Hackathon.WebPort
             ResolvePlayerObstacleCollision(self);
             ResolvePlayerPackageCollision(self);
             SimulateOwnedPackages(self, dt, now);
-            SimulateUnownedSupplyPackages(dt);
             SendNetworkState(dt, self);
             SmoothRenderPositions(dt);
             CleanupEffects(now);
@@ -1019,26 +1042,6 @@ namespace Hackathon.WebPort
             List<PackageState> owned = _packages.Values.Where(p => p.OwnerId == self.Id).OrderBy(p => p.Id).ToList();
             foreach (PackageState package in owned)
                 SimulatePackage(self, package, dt, now);
-        }
-
-        private void SimulateUnownedSupplyPackages(float dt)
-        {
-            foreach (PackageState package in _packages.Values)
-            {
-                if (!package.PickupLocked || package.OwnerId.HasValue || package.HeldBy.HasValue || package.Delivered)
-                    continue;
-
-                package.Position += package.Velocity * dt;
-                package.Velocity += Vector3.down * WebPortConstants.ThrowGravity * dt;
-                if (package.Position.y > 0f)
-                    continue;
-
-                package.Position = new Vector3(package.Position.x, 0f, package.Position.z);
-                package.RenderPosition = package.Position;
-                package.TargetPosition = package.Position;
-                package.Velocity = Vector3.zero;
-                package.PickupLocked = false;
-            }
         }
 
         private void SimulatePackage(PlayerState self, PackageState package, float dt, float now)
