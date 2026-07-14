@@ -87,9 +87,9 @@ MonoBehaviour:
   spriteFrameCount: 10
   spriteFrameSeconds: 0.13
   diagonalFacingDeadZone: 0.18
-  normalPackagePrefab: {fileID: 0}
+  normalPackagePrefab: {fileID: 3223620727861895623, guid: 2082371f943536440894a4e6839fbb6f, type: 3}
   highPackagePrefab: {fileID: 0}
-  bombPackagePrefab: {fileID: 0}
+  bombPackagePrefab: {fileID: 7857909433047399337, guid: 3bf3c18d69586ef4dae8d43d873ec243, type: 3}
   gravityPackagePrefab: {fileID: 0}
   pillarObstaclePrefab: {fileID: 0}
   wallObstaclePrefab: {fileID: 0}
