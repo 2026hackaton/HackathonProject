@@ -29,6 +29,17 @@ namespace Hackathon.WebPort
             _aimingView = new WebPortAimingView(_root);
         }
 
+        public WebPortRenderSystem(WebPortSceneLayout layout)
+        {
+            _root = layout.WorldRoot;
+            _playersRoot = layout.PlayersRoot;
+            _packagesRoot = layout.PackagesRoot;
+            _worldView = new WebPortWorldView(layout.StaticWorldRoot, layout.GoalMarker);
+            _effectRenderer = new WebPortEffectRenderer(layout.EffectsRoot, true);
+            _vehicleView = new WebPortVehicleView(layout.VehiclesRoot, layout.Truck, layout.Bus);
+            _aimingView = new WebPortAimingView(layout.AimingRoot, true);
+        }
+
         public Transform GetPlayerTransform(int playerId)
         {
             return _playerViews.TryGetValue(playerId, out WebPortPlayerView view) ? view.Transform : null;

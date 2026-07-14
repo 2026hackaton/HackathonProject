@@ -17,9 +17,16 @@ namespace Hackathon.WebPort
             CreateObstacles();
         }
 
+        public WebPortWorldView(Transform root, Transform goalRoot)
+        {
+            _root = root;
+            _goalRoot = goalRoot;
+        }
+
         public void SetGoal(Vector3 goal)
         {
-            _goalRoot.position = new Vector3(goal.x, 0f, goal.z);
+            if (_goalRoot != null)
+                _goalRoot.position = new Vector3(goal.x, 0f, goal.z);
         }
 
         private void CreateGround()

@@ -29,7 +29,7 @@ public class HangUpBox : MonoBehaviour
                 Rigidbody2D boxRb = currentBox.GetComponent<Rigidbody2D>();
                 if (boxRb != null)
                 {
-                    boxRb.isKinematic = true; 
+                    boxRb.bodyType = RigidbodyType2D.Kinematic; 
                     // 🔴 2D에서는 useGravity 대신 simulated를 끄거나 velocity를 0으로 만듭니다.
                     boxRb.linearVelocity = Vector2.zero; 
                 }
@@ -53,7 +53,7 @@ public class HangUpBox : MonoBehaviour
         Rigidbody2D boxRb = currentBox.GetComponent<Rigidbody2D>();
         if (boxRb != null)
         {
-            boxRb.isKinematic = false;
+            boxRb.bodyType = RigidbodyType2D.Dynamic;
             
             // 🔴 2D 던지기 구현 (오른쪽으로 던진다고 가정, 대전 상대 방향으로 변경 가능)
             // 3D의 ForceMode.Impulse 대신 2D는 바로 힘을 더하거나 속도를 줍니다.

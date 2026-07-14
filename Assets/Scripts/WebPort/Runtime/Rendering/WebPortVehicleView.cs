@@ -23,6 +23,16 @@ namespace Hackathon.WebPort
             _bus.gameObject.SetActive(false);
         }
 
+        public WebPortVehicleView(Transform parent, Transform truck, Transform bus)
+        {
+            _truck = truck != null ? truck : CreateVehicle("Truck", null, WebPortVisualConfig.PrefabTransform.Identity, new Vector3(50f, 30f, 26f), WebPortVisuals.CreateLit(WebPortVisuals.Config.truckColor, true), parent);
+            _bus = bus != null ? bus : CreateVehicle("Bus", null, WebPortVisualConfig.PrefabTransform.Identity, new Vector3(60f, 34f, 30f), WebPortVisuals.CreateLit(WebPortVisuals.Yellow), parent);
+            _truckMaterial = FindRuntimeMaterial(_truck);
+            _busMaterial = FindRuntimeMaterial(_bus);
+            _truck.gameObject.SetActive(false);
+            _bus.gameObject.SetActive(false);
+        }
+
         public void PlayTruck()
         {
             _truckStartedAt = Time.time;
@@ -113,6 +123,15 @@ namespace Hackathon.WebPort
                     Object.Destroy(collider);
             }
             return obj.transform;
+        }
+
+        private static Material FindRuntimeMaterial(Transform root)
+        {
+            if (root == null)
+                return null;
+
+            MeshRenderer renderer = root.GetComponentInChildren<MeshRenderer>(true);
+            return renderer != null ? renderer.material : null;
         }
     }
 }

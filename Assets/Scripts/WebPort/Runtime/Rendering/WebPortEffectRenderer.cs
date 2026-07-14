@@ -23,10 +23,11 @@ namespace Hackathon.WebPort
         private readonly ParticleSeed[][] _seeds = new ParticleSeed[MaxBursts][];
         private readonly EffectEvent[] _boundBursts = new EffectEvent[MaxBursts];
 
-        public WebPortEffectRenderer(Transform parent)
+        public WebPortEffectRenderer(Transform parent, bool useParentAsRoot = false)
         {
-            _root = new GameObject("Effects").transform;
-            _root.SetParent(parent, false);
+            _root = useParentAsRoot ? parent : new GameObject("Effects").transform;
+            if (!useParentAsRoot)
+                _root.SetParent(parent, false);
             CreateRings();
             CreateSweeps();
             CreateShockwaves();

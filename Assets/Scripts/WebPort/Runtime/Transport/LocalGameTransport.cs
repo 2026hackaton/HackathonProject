@@ -18,7 +18,9 @@ namespace Hackathon.WebPort
         public event Action<RoomStatePayload> RoomStateChanged;
         public event Action<GameStartPayload> GameStarted;
         public event Action<IReadOnlyList<ScoreEntry>> GameEnded;
+#pragma warning disable CS0067
         public event Action<Newtonsoft.Json.Linq.JObject> GameMessageReceived;
+#pragma warning restore CS0067
 
         public int SelfId { get; private set; }
         public bool IsConnected { get; private set; }

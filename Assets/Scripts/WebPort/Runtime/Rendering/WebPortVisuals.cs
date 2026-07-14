@@ -9,6 +9,12 @@ namespace Hackathon.WebPort
 
         public static WebPortVisualConfig Config => _config != null ? _config : _config = WebPortVisualConfig.LoadOrCreateRuntime();
 
+        public static void SetConfig(WebPortVisualConfig config)
+        {
+            if (config != null)
+                _config = config;
+        }
+
         public static Color PageBackground => Config.pageBackground;
         public static Color GroundBase => Config.groundBase;
         public static Color StartBlue => Config.startBlue;

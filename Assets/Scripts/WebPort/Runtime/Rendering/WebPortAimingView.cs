@@ -11,10 +11,11 @@ namespace Hackathon.WebPort
         private readonly LineRenderer _grabbedLine;
         private readonly LineRenderer _draggingLine;
 
-        public WebPortAimingView(Transform parent)
+        public WebPortAimingView(Transform parent, bool useParentAsRoot = false)
         {
-            Transform root = new GameObject("Aiming").transform;
-            root.SetParent(parent, false);
+            Transform root = useParentAsRoot ? parent : new GameObject("Aiming").transform;
+            if (!useParentAsRoot)
+                root.SetParent(parent, false);
 
             Material dotMaterial = WebPortVisuals.CreateUnlit(WebPortVisuals.Html("#ff7043"));
             for (int i = 0; i < DotCount; i++)

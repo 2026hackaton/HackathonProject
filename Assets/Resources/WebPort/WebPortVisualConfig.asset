@@ -150,7 +150,7 @@ MonoBehaviour:
   rockMaterial: {fileID: 0}
   truckMaterial: {fileID: 0}
   busMaterial: {fileID: 0}
-  createBoundaryWalls: 1
+  createBoundaryWalls: 0
   boundaryWallHeight: 90
   boundaryWallThickness: 28
   boundaryWallPadding: 12

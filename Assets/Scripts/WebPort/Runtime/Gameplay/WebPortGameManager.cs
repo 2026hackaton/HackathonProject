@@ -12,6 +12,7 @@ namespace Hackathon.WebPort
     {
         [SerializeField] private bool _useWebSocketTransport = true;
         [SerializeField] private string _serverUrl = "ws://192.168.1.148:8081";
+        [SerializeField] private WebPortSceneLayout _layout;
 
         private readonly Dictionary<int, PlayerState> _players = new();
         private readonly Dictionary<int, PackageState> _packages = new();
@@ -47,7 +48,9 @@ namespace Hackathon.WebPort
         private void Awake()
         {
             Application.targetFrameRate = 60;
-            SetupSceneObjects();
+            if (!SetupSceneObjects())
+                return;
+
             IGameTransport transport = _useWebSocketTransport ? (IGameTransport)new WebSocketGameTransport(_serverUrl) : new LocalGameTransport();
             SetupTransport(transport);
             _transport.Connect();
@@ -84,52 +87,44 @@ namespace Hackathon.WebPort
             UpdateHud();
         }
 
-        private void SetupSceneObjects()
+        private bool SetupSceneObjects()
         {
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
             RenderSettings.ambientLight = Color.white * 0.75f;
 
-            _camera = UnityEngine.Camera.main;
-            if (_camera == null)
+            if (_layout == null)
+                _layout = GetComponentInChildren<WebPortSceneLayout>(true);
+            if (_layout == null)
+                _layout = FindAnyObjectByType<WebPortSceneLayout>(FindObjectsInactive.Include);
+
+            if (_layout == null)
             {
-                GameObject cameraObject = new("Main Camera");
-                cameraObject.tag = "MainCamera";
-                _camera = cameraObject.AddComponent<UnityEngine.Camera>();
-                cameraObject.AddComponent<AudioListener>();
+                Debug.LogError("WebPortGameManager requires a WebPortSceneLayout. Select the manager and click Generate Edit Mode Layout in the Inspector.");
+                enabled = false;
+                return false;
             }
 
+            if (!_layout.HasRequiredReferences(out string layoutError))
+            {
+                Debug.LogError(layoutError);
+                enabled = false;
+                return false;
+            }
+
+            WebPortVisuals.SetConfig(_layout.VisualConfig);
+            _camera = _layout.MainCamera;
             DisableLegacyCameraControllersOnMainCamera();
 
-            _cameraRig = _camera.GetComponent<WebPortCameraRig>();
-            if (_cameraRig == null)
-                _cameraRig = _camera.gameObject.AddComponent<WebPortCameraRig>();
+            _cameraRig = _layout.CameraRig;
+            _renderSystem = new WebPortRenderSystem(_layout);
 
-            if (FindAnyObjectByType<EventSystem>() == null)
-            {
-                GameObject eventSystem = new("EventSystem");
-                eventSystem.AddComponent<EventSystem>();
-                eventSystem.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
-            }
-
-            if (FindAnyObjectByType<Light>() == null)
-            {
-                GameObject lightObject = new("Directional Light");
-                Light light = lightObject.AddComponent<Light>();
-                light.type = LightType.Directional;
-                light.intensity = 1.1f;
-                lightObject.transform.position = new Vector3(120f, 300f, 160f);
-                lightObject.transform.rotation = Quaternion.Euler(55f, -35f, 0f);
-            }
-
-            _renderSystem = new WebPortRenderSystem(transform);
-
-            GameObject uiObject = new("WebPort UI");
-            _ui = uiObject.AddComponent<WebPortUiController>();
+            _ui = _layout.UiController;
             _ui.Build();
             _ui.CreateRoomRequested += () => _transport.CreateRoom();
             _ui.JoinRoomRequested += JoinRoom;
             _ui.StartGameRequested += () => _transport.StartGame();
             _ui.BackToLobbyRequested += BackToLobby;
+            return true;
         }
 
         private void DisableLegacyCameraControllersOnMainCamera()
@@ -193,8 +188,9 @@ namespace Hackathon.WebPort
         private void OnGameStarted(GameStartPayload payload)
         {
             _phase = GamePhase.Playing;
-            _start = payload.Start;
-            _goal = payload.Goal;
+            bool useAuthoredAnchors = _layout != null && _localTransport != null;
+            _start = useAuthoredAnchors ? _layout.StartPosition : payload.Start;
+            _goal = useAuthoredAnchors ? _layout.GetGoalPosition(0) : payload.Goal;
             _goalIndex = 0;
             _goalTimer = 0f;
             _sessionEndTime = payload.SessionEndTime;
@@ -217,6 +213,8 @@ namespace Hackathon.WebPort
 
             if (!_players.ContainsKey(_selfId))
                 _players[_selfId] = new PlayerState(_selfId, _start);
+            else if (useAuthoredAnchors)
+                ResetPlayerPosition(_players[_selfId], _start);
 
             if (payload.Packages != null)
             {
@@ -540,7 +538,7 @@ namespace Hackathon.WebPort
             {
                 _goalTimer = 0f;
                 _goalIndex = (_goalIndex + 1) % WebPortConstants.GoalPositions.Length;
-                _goal = WebPortConstants.GoalPositions[_goalIndex];
+                _goal = _layout != null ? _layout.GetGoalPosition(_goalIndex) : WebPortConstants.GoalPositions[_goalIndex];
             }
 
             _sessionRemainMs = Mathf.Max(_sessionEndTime - now, 0f) * 1000f;
@@ -763,8 +761,9 @@ namespace Hackathon.WebPort
 
         private void ResolvePlayerObstacleCollision(PlayerState player)
         {
-            foreach (ObstacleData obstacle in WebPortConstants.Obstacles)
+            for (int i = 0; i < GetObstacleCount(); i++)
             {
+                ObstacleData obstacle = GetObstacle(i);
                 Vector3 delta = player.Position - obstacle.Position;
                 delta.y = 0f;
                 float distance = delta.magnitude;
@@ -1033,8 +1032,9 @@ namespace Hackathon.WebPort
 
         private void ResolvePackageObstacleCollision(PackageState package)
         {
-            foreach (ObstacleData obstacle in WebPortConstants.Obstacles)
+            for (int i = 0; i < GetObstacleCount(); i++)
             {
+                ObstacleData obstacle = GetObstacle(i);
                 Vector3 delta = package.Position - obstacle.Position;
                 delta.y = 0f;
                 float distance = delta.magnitude;
@@ -1049,6 +1049,16 @@ namespace Hackathon.WebPort
                     AddSpinFromImpact(package, normal, impactSpeed);
                 }
             }
+        }
+
+        private int GetObstacleCount()
+        {
+            return _layout != null && _layout.ObstacleCount > 0 ? _layout.ObstacleCount : WebPortConstants.Obstacles.Length;
+        }
+
+        private ObstacleData GetObstacle(int index)
+        {
+            return _layout != null && _layout.ObstacleCount > 0 ? _layout.GetObstacle(index) : WebPortConstants.Obstacles[index];
         }
 
         private void ResolvePackagePackageCollision(PackageState package)
@@ -1463,6 +1473,23 @@ namespace Hackathon.WebPort
         private void SetupSlots()
         {
             _slots.Clear();
+            int layoutSlotCount = _layout != null ? _layout.PackageSpawnPointCount : 0;
+            if (layoutSlotCount > 0)
+            {
+                for (int i = 0; i < layoutSlotCount; i++)
+                {
+                    Vector3 position = _layout.GetPackageSpawnPosition(i);
+                    PackageSlot slot = new()
+                    {
+                        Position = position,
+                    };
+                    slot.PackageId = SpawnPackageAt(position);
+                    _slots.Add(slot);
+                }
+
+                return;
+            }
+
             for (int row = 0; row < WebPortConstants.SlotRows; row++)
             {
                 for (int col = 0; col < WebPortConstants.SlotColumns; col++)
@@ -1603,6 +1630,15 @@ namespace Hackathon.WebPort
                 Deliveries = source.Deliveries,
             };
             return copy;
+        }
+
+        private static void ResetPlayerPosition(PlayerState player, Vector3 position)
+        {
+            player.Position = position;
+            player.RenderPosition = position;
+            player.TargetPosition = position;
+            player.Velocity = Vector3.zero;
+            player.ExternalVelocity = Vector3.zero;
         }
 
         private static PackageState CopyPackage(PackageState source)
