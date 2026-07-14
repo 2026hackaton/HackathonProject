@@ -1,0 +1,186 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 00dc60c4cb9025f4e81b4856ea459c55, type: 3}
+  m_Name: WebPortVisualConfig
+  m_EditorClassIdentifier: Assembly-CSharp::Hackathon.WebPort.WebPortVisualConfig
+  idleSprite: {fileID: 2800000, guid: f9becfb677271fd43a5633cd7c2865af, type: 3}
+  holdingBoxSprite: {fileID: 2800000, guid: ef3c654247199c845ad10dc316324b51, type: 3}
+  sideSprite: {fileID: 2800000, guid: e28ab1381bf37c04d9b2f337244c9ed5, type: 3}
+  sideHoldingBoxSprite: {fileID: 2800000, guid: 41b0233c335393246a4619d80ffee5b3, type: 3}
+  spriteColumns: 3
+  spriteRows: 4
+  spriteFrameCount: 10
+  spriteFrameSeconds: 0.13
+  diagonalFacingDeadZone: 0.18
+  normalPackagePrefab: {fileID: 0}
+  highPackagePrefab: {fileID: 0}
+  bombPackagePrefab: {fileID: 0}
+  gravityPackagePrefab: {fileID: 0}
+  pillarObstaclePrefab: {fileID: 0}
+  wallObstaclePrefab: {fileID: 0}
+  rockObstaclePrefab: {fileID: 0}
+  truckPrefab: {fileID: 0}
+  busPrefab: {fileID: 0}
+  normalPackageTransform:
+    localPosition: {x: 0, y: 0, z: 0}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  highPackageTransform:
+    localPosition: {x: 0, y: 0, z: 0}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  bombPackageTransform:
+    localPosition: {x: 0, y: 0, z: 0}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  gravityPackageTransform:
+    localPosition: {x: 0, y: 0, z: 0}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  pillarObstacleTransform:
+    localPosition: {x: 0, y: 0, z: 0}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  wallObstacleTransform:
+    localPosition: {x: 0, y: 0, z: 0}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  rockObstacleTransform:
+    localPosition: {x: 0, y: 0, z: 0}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  truckTransform:
+    localPosition: {x: 0, y: 0, z: 0}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  busTransform:
+    localPosition: {x: 0, y: 0, z: 0}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  groundBaseMaterial: {fileID: 0}
+  crossGroundMaterial: {fileID: 0}
+  startMarkerMaterial: {fileID: 0}
+  goalFillMaterial: {fileID: 0}
+  goalRingMaterial: {fileID: 0}
+  normalPackageMaterial: {fileID: 0}
+  highPackageMaterial: {fileID: 0}
+  bombPackageMaterial: {fileID: 0}
+  gravityPackageMaterial: {fileID: 0}
+  pillarMaterial: {fileID: 0}
+  wallMaterial: {fileID: 0}
+  rockMaterial: {fileID: 0}
+  truckMaterial: {fileID: 0}
+  busMaterial: {fileID: 0}
+  pageBackground: {r: 0.8745, g: 0.902, b: 0.9137, a: 1}
+  groundBase: {r: 0.7255, g: 0.7765, b: 0.7882, a: 1}
+  startBlue: {r: 0.2039, g: 0.5961, b: 0.8588, a: 1}
+  goalGreen: {r: 0.1804, g: 0.8, b: 0.4431, a: 1}
+  textDark: {r: 0.1765, g: 0.2039, b: 0.2118, a: 1}
+  muted: {r: 0.3882, g: 0.4314, b: 0.4471, a: 1}
+  yellow: {r: 0.9451, g: 0.7686, b: 0.0588, a: 1}
+  orange: {r: 0.8824, g: 0.4392, b: 0.3333, a: 1}
+  red: {r: 0.9059, g: 0.298, b: 0.2353, a: 1}
+  normalPackageColor: {r: 0.6275, g: 0.4471, b: 0.302, a: 1}
+  highPackageColor: {r: 0.9451, g: 0.7686, b: 0.0588, a: 1}
+  bombPackageColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+  gravityPackageColor: {r: 0.5569, g: 0.2667, b: 0.6784, a: 1}
+  pillarColor: {r: 0.498, g: 0.549, b: 0.5529, a: 1}
+  wallColor: {r: 0.7529, g: 0.4745, b: 0.2471, a: 1}
+  rockColor: {r: 0.5529, g: 0.4314, b: 0.3882, a: 1}
+  truckColor: {r: 0.2039, g: 0.2863, b: 0.3686, a: 1}
+  uiPrefab: {fileID: 0}
+  uiFont: {fileID: 0}
+  screenBackgroundSprite: {fileID: 0}
+  panelSprite: {fileID: 0}
+  hudPanelSprite: {fileID: 0}
+  buttonSprite: {fileID: 0}
+  inputSprite: {fileID: 0}
+  progressBackgroundSprite: {fileID: 0}
+  progressFillSprite: {fileID: 0}
+  uiBackground: {r: 0.8745, g: 0.902, b: 0.9137, a: 1}
+  uiPanel: {r: 1, g: 1, b: 1, a: 0.94}
+  uiHudPanel: {r: 1, g: 1, b: 1, a: 0.88}
+  uiInput: {r: 1, g: 1, b: 1, a: 1}
+  uiText: {r: 0.1765, g: 0.2039, b: 0.2118, a: 1}
+  uiMutedText: {r: 0.3882, g: 0.4314, b: 0.4471, a: 1}
+  uiButtonText: {r: 1, g: 1, b: 1, a: 1}
+  uiPrimaryButton: {r: 0.2039, g: 0.5961, b: 0.8588, a: 1}
+  uiSecondaryButton: {r: 0.9451, g: 0.7686, b: 0.0588, a: 1}
+  uiSuccessButton: {r: 0.1804, g: 0.8, b: 0.4431, a: 1}
+  uiDanger: {r: 0.9059, g: 0.298, b: 0.2353, a: 1}
+  uiProgressBackground: {r: 0.8745, g: 0.902, b: 0.9137, a: 1}
+  uiShadow: {r: 0, g: 0, b: 0, a: 0.16}
+  uiPanelOpacity: 0.94
+  uiHudOpacity: 0.88
+  screenBackgroundImage:
+    sprite: {fileID: 0}
+    mode: 0
+    colorMode: 0
+    color: {r: 0.8745, g: 0.902, b: 0.9137, a: 1}
+    preserveAspect: 0
+    raycastTarget: 0
+    pixelsPerUnitMultiplier: 1
+    material: {fileID: 0}
+  panelImage:
+    sprite: {fileID: 0}
+    mode: 0
+    colorMode: 0
+    color: {r: 1, g: 1, b: 1, a: 0.94}
+    preserveAspect: 0
+    raycastTarget: 0
+    pixelsPerUnitMultiplier: 1
+    material: {fileID: 0}
+  hudPanelImage:
+    sprite: {fileID: 0}
+    mode: 0
+    colorMode: 0
+    color: {r: 1, g: 1, b: 1, a: 0.88}
+    preserveAspect: 0
+    raycastTarget: 0
+    pixelsPerUnitMultiplier: 1
+    material: {fileID: 0}
+  buttonImage:
+    sprite: {fileID: 0}
+    mode: 0
+    colorMode: 0
+    color: {r: 1, g: 1, b: 1, a: 1}
+    preserveAspect: 0
+    raycastTarget: 1
+    pixelsPerUnitMultiplier: 1
+    material: {fileID: 0}
+  inputImage:
+    sprite: {fileID: 0}
+    mode: 0
+    colorMode: 0
+    color: {r: 1, g: 1, b: 1, a: 1}
+    preserveAspect: 0
+    raycastTarget: 1
+    pixelsPerUnitMultiplier: 1
+    material: {fileID: 0}
+  progressBackgroundImage:
+    sprite: {fileID: 0}
+    mode: 0
+    colorMode: 0
+    color: {r: 0.8745, g: 0.902, b: 0.9137, a: 1}
+    preserveAspect: 0
+    raycastTarget: 0
+    pixelsPerUnitMultiplier: 1
+    material: {fileID: 0}
+  progressFillImage:
+    sprite: {fileID: 0}
+    mode: 0
+    colorMode: 0
+    color: {r: 1, g: 1, b: 1, a: 1}
+    preserveAspect: 0
+    raycastTarget: 0
+    pixelsPerUnitMultiplier: 1
+    material: {fileID: 0}
