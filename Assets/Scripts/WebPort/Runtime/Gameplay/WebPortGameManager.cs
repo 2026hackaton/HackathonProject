@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
@@ -19,6 +20,7 @@ namespace Hackathon.WebPort
         private readonly List<PackageSlot> _slots = new();
         private readonly List<EffectEvent> _effects = new();
         private readonly List<int> _memberIds = new();
+        private readonly List<ServerSpawnPackage> _pendingServerSpawns = new();
 
         private IGameTransport _transport;
         private LocalGameTransport _localTransport;
@@ -45,8 +47,45 @@ namespace Hackathon.WebPort
         private float _truckBannerUntil;
         private bool _cameraTargetBound;
         private bool _initialTargetDoorOpened;
+        private bool _waitingForInitialServerSupply;
+        private Coroutine _serverSupplyBatchRoutine;
 
         private PlayerState Self => _players.TryGetValue(_selfId, out PlayerState player) ? player : null;
+
+        private readonly struct ServerSpawnPackage
+        {
+            public readonly int Id;
+            public readonly PackageKind Kind;
+            public readonly Vector3 Position;
+            public readonly Vector3 Velocity;
+            public readonly Vector3 Rotation;
+            public readonly Vector3 AngularVelocity;
+            public readonly int? HeldBy;
+            public readonly float Timer;
+            public readonly bool Delivered;
+
+            public ServerSpawnPackage(
+                int id,
+                PackageKind kind,
+                Vector3 position,
+                Vector3 velocity,
+                Vector3 rotation,
+                Vector3 angularVelocity,
+                int? heldBy,
+                float timer,
+                bool delivered)
+            {
+                Id = id;
+                Kind = kind;
+                Position = position;
+                Velocity = velocity;
+                Rotation = rotation;
+                AngularVelocity = angularVelocity;
+                HeldBy = heldBy;
+                Timer = timer;
+                Delivered = delivered;
+            }
+        }
 
         private void Awake()
         {
@@ -205,6 +244,13 @@ namespace Hackathon.WebPort
             _truckBannerUntil = -1f;
             _cameraTargetBound = false;
             _initialTargetDoorOpened = false;
+            _waitingForInitialServerSupply = _localTransport == null;
+            _pendingServerSpawns.Clear();
+            if (_serverSupplyBatchRoutine != null)
+            {
+                StopCoroutine(_serverSupplyBatchRoutine);
+                _serverSupplyBatchRoutine = null;
+            }
 
             _players.Clear();
             _packages.Clear();
@@ -269,10 +315,113 @@ namespace Hackathon.WebPort
 
         private void OnSpawnReceived(JObject msg)
         {
+            ServerSpawnPackage spawn = ParseServerSpawn(msg);
+            if (_localTransport == null)
+            {
+                QueueServerSupplySpawn(spawn);
+                return;
+            }
+
+            _packages[spawn.Id] = CreatePackageFromServerSpawn(spawn, spawn.Position, false);
+        }
+
+        private static ServerSpawnPackage ParseServerSpawn(JObject msg)
+        {
             int id = msg["id"]!.Value<int>();
             PackageKind kind = PackageKindWire.FromWireString(msg["boxType"]!.Value<string>());
-            Vector3 position = new(msg["x"]!.Value<float>(), msg["y"]!.Value<float>(), msg["z"]!.Value<float>());
-            _packages[id] = new PackageState(id, kind, position);
+            Vector3 position = new(
+                msg["x"]!.Value<float>(),
+                msg["y"]?.Value<float>() ?? 0f,
+                msg["z"]!.Value<float>());
+            Vector3 velocity = new(
+                msg["vx"]?.Value<float>() ?? 0f,
+                msg["vy"]?.Value<float>() ?? 0f,
+                msg["vz"]?.Value<float>() ?? 0f);
+            Vector3 rotation = new(
+                msg["rx"]?.Value<float>() ?? 0f,
+                msg["ry"]?.Value<float>() ?? 0f,
+                msg["rz"]?.Value<float>() ?? 0f);
+            Vector3 angularVelocity = new(
+                msg["avx"]?.Value<float>() ?? 0f,
+                msg["avy"]?.Value<float>() ?? 0f,
+                msg["avz"]?.Value<float>() ?? 0f);
+            int? heldBy = msg["heldBy"] == null || msg["heldBy"]!.Type == JTokenType.Null
+                ? null
+                : msg["heldBy"]!.Value<int?>();
+            float timer = msg["timer"]?.Value<float>() ?? (kind == PackageKind.Bomb ? 4f : 0f);
+            bool delivered = msg["delivered"]?.Value<bool>() ?? false;
+            return new ServerSpawnPackage(id, kind, position, velocity, rotation, angularVelocity, heldBy, timer, delivered);
+        }
+
+        private void QueueServerSupplySpawn(ServerSpawnPackage spawn)
+        {
+            if (_packages.ContainsKey(spawn.Id))
+                return;
+
+            _pendingServerSpawns.Add(spawn);
+            if (_serverSupplyBatchRoutine == null)
+                _serverSupplyBatchRoutine = StartCoroutine(FlushServerSupplySpawns());
+        }
+
+        private IEnumerator FlushServerSupplySpawns()
+        {
+            yield return null;
+
+            List<ServerSpawnPackage> spawns = new(_pendingServerSpawns);
+            _pendingServerSpawns.Clear();
+            _serverSupplyBatchRoutine = null;
+            if (spawns.Count == 0)
+                yield break;
+
+            bool initial = _waitingForInitialServerSupply;
+            _waitingForInitialServerSupply = false;
+            PlayServerSupply(spawns, !initial, initial ? OpenInitialTargetDoor : null);
+        }
+
+        private void PlayServerSupply(IReadOnlyList<ServerSpawnPackage> spawns, bool refill, Action completed)
+        {
+            List<Vector3> positions = new(spawns.Count);
+            for (int i = 0; i < spawns.Count; i++)
+                positions.Add(spawns[i].Position);
+
+            bool started = _supplySequence != null && (refill
+                ? _supplySequence.PlayRefillSupply(positions, SpawnServerPackage, completed)
+                : _supplySequence.PlayInitialSupply(positions, SpawnServerPackage, completed));
+
+            if (!started)
+            {
+                for (int i = 0; i < spawns.Count; i++)
+                    SpawnServerPackage(i, positions[i]);
+                completed?.Invoke();
+            }
+
+            void SpawnServerPackage(int index, Vector3 dropPosition)
+            {
+                if (index < 0 || index >= spawns.Count)
+                    return;
+
+                ServerSpawnPackage spawn = spawns[index];
+                PackageState package = CreatePackageFromServerSpawn(spawn, dropPosition, true);
+                _packages[package.Id] = package;
+                AssignSlotToPackage(spawn.Position, package.Id);
+            }
+        }
+
+        private PackageState CreatePackageFromServerSpawn(ServerSpawnPackage spawn, Vector3 position, bool spawnedFromSupply)
+        {
+            PackageState package = new(spawn.Id, spawn.Kind, position)
+            {
+                Velocity = spawnedFromSupply && position.y > 0.01f ? Vector3.down * 40f : spawn.Velocity,
+                Rotation = spawn.Rotation,
+                RenderRotation = spawn.Rotation,
+                TargetRotation = spawn.Rotation,
+                AngularVelocity = spawn.AngularVelocity,
+                HeldBy = spawn.HeldBy,
+                Timer = spawn.Timer,
+                Delivered = spawn.Delivered,
+                PickupLocked = spawnedFromSupply && position.y > 0.01f,
+            };
+            return package;
         }
 
         private void OnMoveReceived(JObject msg, float now)
@@ -347,6 +496,8 @@ namespace Hackathon.WebPort
             package.Timer = msg["timer"]!.Value<float>();
             package.Delivered = msg["delivered"]!.Value<bool>();
             package.OwnerId = from;
+            if (package.Position.y <= 0.01f)
+                package.PickupLocked = false;
         }
 
         private void OnGrabReceived(JObject msg, float now)
@@ -432,6 +583,7 @@ namespace Hackathon.WebPort
             package.Position = carryStartPosition;
             package.RenderPosition = package.Position;
             package.TargetPosition = package.Position;
+            ClearSlotForPackage(id);
         }
 
         private void OnPickupRejected(JObject msg)
@@ -527,6 +679,7 @@ namespace Hackathon.WebPort
             ResolvePlayerObstacleCollision(self);
             ResolvePlayerPackageCollision(self);
             SimulateOwnedPackages(self, dt, now);
+            SimulateUnownedSupplyPackages(dt);
             SendNetworkState(dt, self);
             SmoothRenderPositions(dt);
             CleanupEffects(now);
@@ -605,6 +758,9 @@ namespace Hackathon.WebPort
 
         private void TickRefills(float now)
         {
+            if (_localTransport == null)
+                return;
+
             if (_supplySequence != null && _supplySequence.IsPlaying)
                 return;
 
@@ -679,7 +835,7 @@ namespace Hackathon.WebPort
                     self.Position = WebPortConstants.ClampToCross(self.Position);
                 }
 
-                self.Angle = Mathf.Atan2(_mouseWorld.z - self.Position.z, _mouseWorld.x - self.Position.x);
+                self.Angle = CalculateMouseAimAngle(self);
             }
 
             TickInstability(self, heldCount, dt, now);
@@ -725,6 +881,33 @@ namespace Hackathon.WebPort
                 screenRight.Normalize();
 
             return screenRight * input.x + screenUp * input.y;
+        }
+
+        private float CalculateMouseAimAngle(PlayerState self)
+        {
+            Vector3 direction = CalculateMouseAimDirection(self);
+            return Mathf.Atan2(direction.z, direction.x);
+        }
+
+        private Vector3 CalculateMouseAimDirection(PlayerState self)
+        {
+            if (_camera != null && Mouse.current != null)
+            {
+                Vector2 mouseScreen = Mouse.current.position.ReadValue();
+                Vector3 playerScreen = _camera.WorldToScreenPoint(new Vector3(self.Position.x, 0f, self.Position.z));
+                Vector2 screenDelta = mouseScreen - new Vector2(playerScreen.x, playerScreen.y);
+                if (screenDelta.sqrMagnitude > 4f)
+                {
+                    Vector3 cameraRelative = GetCameraRelativeMove(screenDelta.normalized);
+                    cameraRelative.y = 0f;
+                    if (cameraRelative.sqrMagnitude > 0.0001f)
+                        return cameraRelative.normalized;
+                }
+            }
+
+            Vector3 worldDelta = _mouseWorld - self.Position;
+            worldDelta.y = 0f;
+            return worldDelta.sqrMagnitude > 0.0001f ? worldDelta.normalized : Vector3.right;
         }
 
         private void TickInstability(PlayerState self, int heldCount, float dt, float now)
@@ -836,6 +1019,26 @@ namespace Hackathon.WebPort
             List<PackageState> owned = _packages.Values.Where(p => p.OwnerId == self.Id).OrderBy(p => p.Id).ToList();
             foreach (PackageState package in owned)
                 SimulatePackage(self, package, dt, now);
+        }
+
+        private void SimulateUnownedSupplyPackages(float dt)
+        {
+            foreach (PackageState package in _packages.Values)
+            {
+                if (!package.PickupLocked || package.OwnerId.HasValue || package.HeldBy.HasValue || package.Delivered)
+                    continue;
+
+                package.Position += package.Velocity * dt;
+                package.Velocity += Vector3.down * WebPortConstants.ThrowGravity * dt;
+                if (package.Position.y > 0f)
+                    continue;
+
+                package.Position = new Vector3(package.Position.x, 0f, package.Position.z);
+                package.RenderPosition = package.Position;
+                package.TargetPosition = package.Position;
+                package.Velocity = Vector3.zero;
+                package.PickupLocked = false;
+            }
         }
 
         private void SimulatePackage(PlayerState self, PackageState package, float dt, float now)
@@ -1353,7 +1556,9 @@ namespace Hackathon.WebPort
             float scale = WebPortConstants.PushForceMinScale + ratio * (WebPortConstants.PushForceMaxScale - WebPortConstants.PushForceMinScale);
             float radius = WebPortConstants.PushRange * (1f + ratio * (WebPortConstants.PushRangeMaxScale - 1f));
             self.PushCooldown = WebPortConstants.PushCooldown;
-            AddEffect(EffectKind.Shockwave, self.Position, now, 0.32f, self.Angle, radius);
+            float pushAngle = CalculateMouseAimAngle(self);
+            self.Angle = pushAngle;
+            AddEffect(EffectKind.Shockwave, self.Position, now, 0.32f, pushAngle, radius);
 
             foreach (PlayerState target in _players.Values)
             {
@@ -1366,7 +1571,7 @@ namespace Hackathon.WebPort
                 if (distance >= radius || distance <= 0.01f)
                     continue;
 
-                float diff = Mathf.Abs(Mathf.DeltaAngle(self.Angle * Mathf.Rad2Deg, Mathf.Atan2(delta.z, delta.x) * Mathf.Rad2Deg)) * Mathf.Deg2Rad;
+                float diff = Mathf.Abs(Mathf.DeltaAngle(pushAngle * Mathf.Rad2Deg, Mathf.Atan2(delta.z, delta.x) * Mathf.Rad2Deg)) * Mathf.Deg2Rad;
                 if (diff > WebPortConstants.PushArcHalfAngle)
                     continue;
 
@@ -1387,7 +1592,8 @@ namespace Hackathon.WebPort
 
             float held = Mathf.Min(now - self.ThrowChargeStartedAt, WebPortConstants.MaxChargeSeconds);
             float power = (held / WebPortConstants.MaxChargeSeconds) * WebPortConstants.MaxPower;
-            float angle = Mathf.Atan2(_mouseWorld.z - self.Position.z, _mouseWorld.x - self.Position.x);
+            float angle = CalculateMouseAimAngle(self);
+            self.Angle = angle;
             List<PackageState> heldPackages = _packages.Values.Where(p => p.HeldBy == self.Id).OrderBy(p => p.Id).ToList();
             int count = heldPackages.Count;
 
@@ -1539,6 +1745,9 @@ namespace Hackathon.WebPort
                     _slots.Add(slot);
                 }
 
+                if (_localTransport == null)
+                    return;
+
                 PlaySupplyForSlots(_slots, false, OpenInitialTargetDoor);
                 return;
             }
@@ -1559,6 +1768,9 @@ namespace Hackathon.WebPort
                     _slots.Add(slot);
                 }
             }
+
+            if (_localTransport == null)
+                return;
 
             PlaySupplyForSlots(_slots, false, OpenInitialTargetDoor);
         }
@@ -1632,9 +1844,32 @@ namespace Hackathon.WebPort
                     continue;
 
                 slot.PackageId = null;
-                slot.RefillAt = Time.time + WebPortConstants.RefillDelaySeconds;
+                slot.RefillAt = _localTransport == null ? -1f : Time.time + WebPortConstants.RefillDelaySeconds;
                 return;
             }
+        }
+
+        private void AssignSlotToPackage(Vector3 sourcePosition, int packageId)
+        {
+            PackageSlot bestSlot = null;
+            float bestDistance = float.MaxValue;
+            foreach (PackageSlot slot in _slots)
+            {
+                Vector3 delta = slot.Position - sourcePosition;
+                delta.y = 0f;
+                float distance = delta.sqrMagnitude;
+                if (distance >= bestDistance)
+                    continue;
+
+                bestDistance = distance;
+                bestSlot = slot;
+            }
+
+            if (bestSlot == null)
+                return;
+
+            bestSlot.PackageId = packageId;
+            bestSlot.RefillAt = 0f;
         }
 
         private void AddEffect(EffectKind kind, Vector3 position, float now, float duration, float angle = 0f, float radius = 0f, float length = 0f)

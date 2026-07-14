@@ -17,7 +17,7 @@ namespace Hackathon.WebPort
             WebPortVisualConfig config = WebPortVisuals.Config;
             _truckMaterial = config.truckMaterial != null ? Object.Instantiate(config.truckMaterial) : WebPortVisuals.CreateLit(config.truckColor, true);
             _busMaterial = config.busMaterial != null ? Object.Instantiate(config.busMaterial) : WebPortVisuals.CreateLit(WebPortVisuals.Yellow);
-            _truck = CreateVehicle("Truck", config.truckPrefab, config.truckTransform, new Vector3(50f, 30f, 26f), _truckMaterial, parent);
+            _truck = CreateVehicle("Truck", config.truckPrefab, config.truckTransform, new Vector3(50f, 30f, 26f), _truckMaterial, parent, true);
             _bus = CreateVehicle("Bus", config.busPrefab, config.busTransform, new Vector3(60f, 34f, 30f), _busMaterial, parent);
             _truck.gameObject.SetActive(false);
             _bus.gameObject.SetActive(false);
@@ -102,7 +102,7 @@ namespace Hackathon.WebPort
             _bus.position = new Vector3(x, 18f, start.z);
         }
 
-        private static Transform CreateVehicle(string name, GameObject prefab, WebPortVisualConfig.PrefabTransform prefabTransform, Vector3 size, Material material, Transform parent)
+        private static Transform CreateVehicle(string name, GameObject prefab, WebPortVisualConfig.PrefabTransform prefabTransform, Vector3 size, Material material, Transform parent, bool preservePrefabTransform = false)
         {
             GameObject obj = new(name);
             obj.transform.SetParent(parent, false);
@@ -118,7 +118,8 @@ namespace Hackathon.WebPort
             }
             else
             {
-                prefabTransform.ApplyTo(visual.transform);
+                if (!preservePrefabTransform)
+                    prefabTransform.ApplyTo(visual.transform);
                 foreach (Collider collider in visual.GetComponentsInChildren<Collider>())
                     Object.Destroy(collider);
             }
