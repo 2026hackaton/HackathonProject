@@ -65,10 +65,10 @@ namespace Hackathon.WebPort.Editor
 
             Directory.CreateDirectory(Path.GetDirectoryName(VisualConfigPath));
             config = ScriptableObject.CreateInstance<Hackathon.WebPort.WebPortVisualConfig>();
-            config.idleSprite = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Resources/WebPort/Art/qt_2.png");
-            config.holdingBoxSprite = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Resources/WebPort/Art/qt_holding_box.png");
-            config.sideSprite = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Resources/WebPort/Art/qt_right_side.png");
-            config.sideHoldingBoxSprite = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Resources/WebPort/Art/qt_right_side_holding_box.png");
+            config.frontMoveTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Resources/WebPort/Art/qt_2.png");
+            config.frontHoldingMoveTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Resources/WebPort/Art/qt_holding_box.png");
+            config.sideMoveTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Resources/WebPort/Art/qt_right_side.png");
+            config.sideHoldingMoveTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Resources/WebPort/Art/qt_right_side_holding_box.png");
             AssetDatabase.CreateAsset(config, VisualConfigPath);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();

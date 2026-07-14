@@ -12,10 +12,76 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 00dc60c4cb9025f4e81b4856ea459c55, type: 3}
   m_Name: WebPortVisualConfig
   m_EditorClassIdentifier: Assembly-CSharp::Hackathon.WebPort.WebPortVisualConfig
-  idleSprite: {fileID: 2800000, guid: f9becfb677271fd43a5633cd7c2865af, type: 3}
-  holdingBoxSprite: {fileID: 2800000, guid: ef3c654247199c845ad10dc316324b51, type: 3}
-  sideSprite: {fileID: 2800000, guid: e28ab1381bf37c04d9b2f337244c9ed5, type: 3}
-  sideHoldingBoxSprite: {fileID: 2800000, guid: 41b0233c335393246a4619d80ffee5b3, type: 3}
+  frontSprites:
+    idleFrames: []
+    moveFrames: []
+  frontHoldingSprites:
+    idleFrames: []
+    moveFrames: []
+  sideSprites:
+    idleFrames: []
+    moveFrames: []
+  sideHoldingSprites:
+    idleFrames: []
+    moveFrames: []
+  playerSpriteFrameSeconds: 0.13
+  frontSpriteSheets:
+    idleSheet:
+      sheet: {fileID: 0}
+      columns: 0
+      rows: 0
+      frameCount: 0
+    moveSheet:
+      sheet: {fileID: 0}
+      columns: 0
+      rows: 0
+      frameCount: 0
+  frontHoldingSpriteSheets:
+    idleSheet:
+      sheet: {fileID: 0}
+      columns: 0
+      rows: 0
+      frameCount: 0
+    moveSheet:
+      sheet: {fileID: 0}
+      columns: 0
+      rows: 0
+      frameCount: 0
+  sideSpriteSheets:
+    idleSheet:
+      sheet: {fileID: 0}
+      columns: 0
+      rows: 0
+      frameCount: 0
+    moveSheet:
+      sheet: {fileID: 0}
+      columns: 0
+      rows: 0
+      frameCount: 0
+  sideHoldingSpriteSheets:
+    idleSheet:
+      sheet: {fileID: 0}
+      columns: 0
+      rows: 0
+      frameCount: 0
+    moveSheet:
+      sheet: {fileID: 0}
+      columns: 0
+      rows: 0
+      frameCount: 0
+  playerSpriteSheetFrameSeconds: 0.13
+  playerSpriteWorldWidth: 68
+  playerSpriteWorldHeight: 68
+  playerSpriteLocalPosition: {x: 0, y: 24, z: 0}
+  playerSpriteLocalScale: {x: 1, y: 1, z: 1}
+  frontIdleTexture: {fileID: 2800000, guid: f371dc45568938d4c9c8929e5c773df6, type: 3}
+  frontMoveTexture: {fileID: 2800000, guid: f9becfb677271fd43a5633cd7c2865af, type: 3}
+  frontHoldingIdleTexture: {fileID: 2800000, guid: 3944577edb44daa44a14750b2facc5d9, type: 3}
+  frontHoldingMoveTexture: {fileID: 2800000, guid: ef3c654247199c845ad10dc316324b51, type: 3}
+  sideIdleTexture: {fileID: 2800000, guid: a2527bd3740669e41ab3d48ae8cc8b62, type: 3}
+  sideMoveTexture: {fileID: 2800000, guid: e28ab1381bf37c04d9b2f337244c9ed5, type: 3}
+  sideHoldingIdleTexture: {fileID: 2800000, guid: 51197a411eb6a8348bddb3d9948d0b93, type: 3}
+  sideHoldingMoveTexture: {fileID: 2800000, guid: 41b0233c335393246a4619d80ffee5b3, type: 3}
   spriteColumns: 3
   spriteRows: 4
   spriteFrameCount: 10
