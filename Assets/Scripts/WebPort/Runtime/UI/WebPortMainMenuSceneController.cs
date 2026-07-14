@@ -1,0 +1,409 @@
+using System;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
+namespace Hackathon.WebPort
+{
+    public sealed class WebPortMainMenuSceneController : MonoBehaviour
+    {
+        private enum StartButtonMode
+        {
+            CreateRoomAndStart,
+            ShowRoomOptions,
+        }
+
+        [Header("Scene Flow")]
+        [SerializeField] private string gameplaySceneName = "GamePlayTestScene";
+        [SerializeField] private StartButtonMode startButtonMode = StartButtonMode.CreateRoomAndStart;
+        [SerializeField] private bool autoStartCreatedRoom = true;
+        [SerializeField] private bool wireButtonsOnAwake = true;
+
+        [Header("Main Screen Effects")]
+        [SerializeField] private bool enableMenuEffects = true;
+        [SerializeField] private RectTransform logoMotionTarget;
+        [SerializeField] private RectTransform startButtonMotionTarget;
+
+        [Header("Custom Main Screen")]
+        [SerializeField] private bool useGeneratedFallbackIfMissingStartButton = true;
+        [SerializeField] private GameObject background;
+        [SerializeField] private GameObject logo;
+        [SerializeField] private Button gameStartButton;
+
+        [Header("Optional Room Options")]
+        [SerializeField] private GameObject roomPanel;
+        [SerializeField] private Button createRoomButton;
+        [SerializeField] private Button joinRoomButton;
+        [SerializeField] private Button backButton;
+        [SerializeField] private InputField roomCodeInput;
+        [SerializeField] private Text errorText;
+
+        [Header("Generated Fallback")]
+        [SerializeField] private string fallbackTitle = "PARCEL PANIC";
+        [SerializeField] private string fallbackSubtitle = "DELIVERY TERMINAL";
+
+        private Button _gameStartButton;
+        private GameObject _roomPanel;
+        private InputField _roomCodeInput;
+        private Text _errorText;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static void InstallForMainMenuScene()
+        {
+            Scene scene = SceneManager.GetActiveScene();
+            if (!scene.name.Equals("MainMenu", StringComparison.OrdinalIgnoreCase) &&
+                !scene.name.Equals("mainMenu", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (FindAnyObjectByType<WebPortMainMenuSceneController>(FindObjectsInactive.Include) != null)
+                return;
+
+            GameObject obj = new("WebPort Main Menu Scene Controller");
+            obj.AddComponent<WebPortMainMenuSceneController>();
+        }
+
+        private void Awake()
+        {
+            if (!TryBindCustomMenu())
+                BuildGeneratedFallback();
+
+            SetupMenuEffects();
+            ShowMain();
+        }
+
+        private bool TryBindCustomMenu()
+        {
+            if (gameStartButton == null)
+                return false;
+
+            _gameStartButton = gameStartButton;
+            _roomPanel = roomPanel;
+            _roomCodeInput = roomCodeInput;
+            _errorText = errorText;
+
+            if (wireButtonsOnAwake)
+            {
+                _gameStartButton.onClick.AddListener(OnGameStartClicked);
+
+                if (createRoomButton != null)
+                    createRoomButton.onClick.AddListener(OnCreateRoomClicked);
+                if (joinRoomButton != null)
+                    joinRoomButton.onClick.AddListener(OnJoinRoomClicked);
+                if (backButton != null)
+                    backButton.onClick.AddListener(ShowMain);
+            }
+
+            RemoveGeneratedButtonSkins(_gameStartButton, createRoomButton, joinRoomButton, backButton);
+            return true;
+        }
+
+        private void BuildGeneratedFallback()
+        {
+            if (!useGeneratedFallbackIfMissingStartButton)
+            {
+                Debug.LogWarning("[WebPortMainMenuSceneController] Game Start Button is not assigned and generated fallback UI is disabled.");
+                enabled = false;
+                return;
+            }
+
+            Canvas canvas = new GameObject("Main Menu Runtime Canvas").AddComponent<Canvas>();
+            canvas.transform.SetParent(transform, false);
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 500;
+
+            CanvasScaler scaler = canvas.gameObject.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1280f, 720f);
+            scaler.matchWidthOrHeight = 0.5f;
+
+            canvas.gameObject.AddComponent<GraphicRaycaster>();
+            Stretch(canvas.GetComponent<RectTransform>());
+
+            AddFallbackBackground(canvas.transform);
+            AddText(canvas.transform, fallbackTitle, 58, FontStyle.Bold, new Vector2(0f, 148f), new Vector2(720f, 72f), new Color(1f, 0.86f, 0.34f, 1f));
+            AddText(canvas.transform, fallbackSubtitle, 16, FontStyle.Bold, new Vector2(0f, 92f), new Vector2(420f, 28f), new Color(0.54f, 0.84f, 0.84f, 1f));
+
+            _gameStartButton = AddButton(canvas.transform, "GAME START", new Vector2(0f, -70f), new Vector2(340f, 56f), new Color(0.95f, 0.68f, 0.16f, 1f));
+            _gameStartButton.onClick.AddListener(OnGameStartClicked);
+
+            _roomPanel = CreatePanel(canvas.transform, "Room Options Panel", new Vector2(520f, 310f), new Vector2(0f, -28f));
+            AddText(_roomPanel.transform, "ROOM OPTIONS", 24, FontStyle.Bold, new Vector2(0f, 96f), new Vector2(400f, 36f), new Color(1f, 0.86f, 0.34f, 1f));
+
+            Button createButton = AddButton(_roomPanel.transform, "CREATE ROOM", new Vector2(0f, 36f), new Vector2(330f, 48f), new Color(0.95f, 0.68f, 0.16f, 1f));
+            createButton.onClick.AddListener(OnCreateRoomClicked);
+
+            _roomCodeInput = AddInput(_roomPanel.transform, "ROOM CODE", new Vector2(0f, -24f), new Vector2(330f, 42f));
+
+            Button joinButton = AddButton(_roomPanel.transform, "JOIN ROOM", new Vector2(0f, -82f), new Vector2(330f, 46f), new Color(0.10f, 0.65f, 0.72f, 1f));
+            joinButton.onClick.AddListener(OnJoinRoomClicked);
+
+            Button fallbackBackButton = AddButton(_roomPanel.transform, "BACK", new Vector2(0f, -134f), new Vector2(140f, 32f), new Color(0.18f, 0.22f, 0.23f, 1f));
+            fallbackBackButton.onClick.AddListener(ShowMain);
+
+            _errorText = AddText(_roomPanel.transform, string.Empty, 12, FontStyle.Normal, new Vector2(0f, -168f), new Vector2(380f, 22f), new Color(1f, 0.38f, 0.30f, 1f));
+        }
+
+        private void SetupMenuEffects()
+        {
+            if (!enableMenuEffects)
+                return;
+
+            WebPortMainMenuEffects effects = GetComponent<WebPortMainMenuEffects>();
+            if (effects == null)
+                effects = gameObject.AddComponent<WebPortMainMenuEffects>();
+
+            RectTransform resolvedLogo = logoMotionTarget != null ? logoMotionTarget : logo != null ? logo.GetComponent<RectTransform>() : null;
+            RectTransform resolvedButton = ResolveStartButtonMotionTarget();
+
+            effects.Configure(resolvedLogo, resolvedButton);
+        }
+
+        private RectTransform ResolveStartButtonMotionTarget()
+        {
+            if (startButtonMotionTarget != null)
+                return startButtonMotionTarget;
+
+            if (_gameStartButton == null)
+                return null;
+
+            // Box-style start buttons own their hover motion, so the global idle motion stays off unless a wrapper is explicitly assigned.
+            if (_gameStartButton.GetComponent<WebPortBoxStartButtonView>() != null)
+                return null;
+
+            return _gameStartButton.GetComponent<RectTransform>();
+        }
+
+        public void OnGameStartClicked()
+        {
+            if (startButtonMode == StartButtonMode.ShowRoomOptions && HasRoomOptions())
+            {
+                ShowRoomOptionsPanel();
+                return;
+            }
+
+            OnCreateRoomClicked();
+        }
+
+        private bool HasRoomOptions()
+        {
+            return _roomPanel != null && createRoomButton != null && joinRoomButton != null ||
+                   _roomPanel != null && _roomCodeInput != null;
+        }
+
+        public void OnCreateRoomClicked()
+        {
+            WebPortMenuSceneRequest.LoadAndCreateRoom(gameplaySceneName, autoStartCreatedRoom);
+        }
+
+        public void OnJoinRoomClicked()
+        {
+            string code = _roomCodeInput != null ? _roomCodeInput.text.Trim().ToUpperInvariant() : string.Empty;
+            if (code.Length < 4)
+            {
+                if (_errorText != null)
+                    _errorText.text = "Room code must be 4 characters.";
+                return;
+            }
+
+            WebPortMenuSceneRequest.LoadAndJoinRoom(gameplaySceneName, code);
+        }
+
+        public void ShowMain()
+        {
+            SetActive(background, true);
+            SetActive(logo, true);
+            SetActive(_gameStartButton != null ? _gameStartButton.gameObject : null, true);
+            SetActive(_roomPanel, false);
+            BringMainScreenUiToFront();
+            if (_errorText != null)
+                _errorText.text = string.Empty;
+        }
+
+        public void ShowRoomOptionsPanel()
+        {
+            SetActive(background, true);
+            SetActive(logo, true);
+            SetActive(_gameStartButton != null ? _gameStartButton.gameObject : null, false);
+            SetActive(_roomPanel, true);
+            BringMainScreenUiToFront();
+            if (_errorText != null)
+                _errorText.text = string.Empty;
+        }
+
+        private static void AddFallbackBackground(Transform parent)
+        {
+            GameObject bg = new("Main Menu Background");
+            bg.transform.SetParent(parent, false);
+            Stretch(bg.AddComponent<RectTransform>());
+            Image image = bg.AddComponent<Image>();
+            image.color = new Color(0.035f, 0.041f, 0.047f, 1f);
+
+            AddDecorRect(parent, "Top Rail", new Vector2(0.5f, 1f), new Vector2(0f, -42f), new Vector2(1280f, 84f), new Color(0.91f, 0.66f, 0.14f, 0.96f));
+            AddDecorRect(parent, "Bottom Conveyor", new Vector2(0.5f, 0f), new Vector2(0f, 48f), new Vector2(1280f, 96f), new Color(0.07f, 0.12f, 0.14f, 0.96f));
+            AddDecorRect(parent, "Left Dock", new Vector2(0f, 0.5f), new Vector2(96f, 0f), new Vector2(192f, 720f), new Color(0.14f, 0.16f, 0.18f, 0.84f));
+            AddDecorRect(parent, "Scanner Strip", new Vector2(1f, 0.5f), new Vector2(-116f, 0f), new Vector2(14f, 720f), new Color(0.11f, 0.65f, 0.72f, 0.82f));
+        }
+
+        private static GameObject CreatePanel(Transform parent, string name, Vector2 size, Vector2 position)
+        {
+            GameObject panel = new(name);
+            panel.transform.SetParent(parent, false);
+            RectTransform rect = panel.AddComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = size;
+            rect.anchoredPosition = position;
+
+            Image image = panel.AddComponent<Image>();
+            image.color = new Color(0.09f, 0.12f, 0.13f, 0.96f);
+
+            Shadow shadow = panel.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0f, 0f, 0f, 0.38f);
+            shadow.effectDistance = new Vector2(0f, -6f);
+            return panel;
+        }
+
+        private static Button AddButton(Transform parent, string label, Vector2 position, Vector2 size, Color color)
+        {
+            GameObject obj = new(label);
+            obj.transform.SetParent(parent, false);
+            RectTransform rect = obj.AddComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+
+            Image image = obj.AddComponent<Image>();
+            image.color = color;
+
+            Button button = obj.AddComponent<Button>();
+            ColorBlock colors = button.colors;
+            colors.normalColor = color;
+            colors.highlightedColor = Color.Lerp(color, Color.white, 0.16f);
+            colors.pressedColor = Color.Lerp(color, Color.black, 0.18f);
+            colors.selectedColor = colors.highlightedColor;
+            colors.disabledColor = new Color(color.r, color.g, color.b, 0.45f);
+            button.colors = colors;
+
+            AddText(obj.transform, label, size.y >= 48f ? 18 : 14, FontStyle.Bold, Vector2.zero, new Vector2(size.x - 24f, size.y - 6f), Color.white);
+            return button;
+        }
+
+        private static InputField AddInput(Transform parent, string placeholder, Vector2 position, Vector2 size)
+        {
+            GameObject obj = new("Room Code Input");
+            obj.transform.SetParent(parent, false);
+            RectTransform rect = obj.AddComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+
+            Image image = obj.AddComponent<Image>();
+            image.color = new Color(0.045f, 0.055f, 0.060f, 0.98f);
+
+            InputField input = obj.AddComponent<InputField>();
+            input.characterLimit = 4;
+            input.contentType = InputField.ContentType.Alphanumeric;
+
+            Text text = AddText(obj.transform, string.Empty, 19, FontStyle.Bold, Vector2.zero, new Vector2(size.x - 20f, size.y - 8f), new Color(0.95f, 0.98f, 0.95f, 1f));
+            input.textComponent = text;
+
+            Text placeholderText = AddText(obj.transform, placeholder, 15, FontStyle.Normal, Vector2.zero, new Vector2(size.x - 20f, size.y - 8f), new Color(0.60f, 0.68f, 0.66f, 0.8f));
+            input.placeholder = placeholderText;
+            return input;
+        }
+
+        private static Text AddText(Transform parent, string value, int size, FontStyle style, Vector2 position, Vector2 rectSize, Color color)
+        {
+            GameObject obj = new("Text");
+            obj.transform.SetParent(parent, false);
+            RectTransform rect = obj.AddComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = rectSize;
+
+            Text text = obj.AddComponent<Text>();
+            text.text = value;
+            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (text.font == null)
+                text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            text.fontSize = size;
+            text.fontStyle = style;
+            text.color = color;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.resizeTextForBestFit = true;
+            text.resizeTextMinSize = Mathf.Max(10, Mathf.RoundToInt(size * 0.7f));
+            text.resizeTextMaxSize = size;
+            return text;
+        }
+
+        private static void AddDecorRect(Transform parent, string name, Vector2 anchor, Vector2 position, Vector2 size, Color color)
+        {
+            GameObject obj = new(name);
+            obj.transform.SetParent(parent, false);
+            RectTransform rect = obj.AddComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = rect.pivot = anchor;
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+            Image image = obj.AddComponent<Image>();
+            image.color = color;
+            image.raycastTarget = false;
+        }
+
+        private static void Stretch(RectTransform rect)
+        {
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+        }
+
+        private static void SetActive(GameObject target, bool active)
+        {
+            if (target != null)
+                target.SetActive(active);
+        }
+
+        private void BringMainScreenUiToFront()
+        {
+            if (background != null)
+                background.transform.SetAsFirstSibling();
+
+            if (logo != null)
+                logo.transform.SetAsLastSibling();
+
+            Transform startVisualRoot = startButtonMotionTarget != null
+                ? startButtonMotionTarget
+                : _gameStartButton != null
+                    ? _gameStartButton.transform
+                    : null;
+
+            if (startVisualRoot != null)
+                startVisualRoot.SetAsLastSibling();
+
+            if (_roomPanel != null && _roomPanel.activeSelf)
+                _roomPanel.transform.SetAsLastSibling();
+        }
+
+        private static void RemoveGeneratedButtonSkins(params Button[] buttons)
+        {
+            foreach (Button button in buttons)
+            {
+                if (button == null)
+                    continue;
+
+                WebPortTerminalButtonSkin[] skins = button.GetComponents<WebPortTerminalButtonSkin>();
+                foreach (WebPortTerminalButtonSkin skin in skins)
+                {
+                    if (skin == null)
+                        continue;
+
+                    if (Application.isPlaying)
+                        Destroy(skin);
+                    else
+                        DestroyImmediate(skin);
+                }
+            }
+        }
+    }
+}
