@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Hackathon.WebPort
@@ -60,6 +61,7 @@ namespace Hackathon.WebPort
         public Vector3 Position;
         public Vector3 RenderPosition;
         public Vector3 TargetPosition;
+        public float TargetTime;
         public Vector3 Velocity;
         public float Angle;
         public bool Stunned;
@@ -101,6 +103,7 @@ namespace Hackathon.WebPort
         public Vector3 Position;
         public Vector3 RenderPosition;
         public Vector3 TargetPosition;
+        public float TargetTime;
         public Vector3 Velocity;
         public int? HeldBy;
         public int? OwnerId;
@@ -169,5 +172,127 @@ namespace Hackathon.WebPort
     public abstract class GameClientCommand
     {
         public int SenderId;
+
+        public abstract JObject ToJson();
+    }
+
+    public sealed class MoveCommand : GameClientCommand
+    {
+        public float X;
+        public float Z;
+        public float Angle;
+        public bool Stunned;
+        public bool Rolling;
+        public int Deliveries;
+
+        public override JObject ToJson() => new()
+        {
+            ["type"] = "move",
+            ["x"] = X,
+            ["z"] = Z,
+            ["angle"] = Angle,
+            ["stunned"] = Stunned,
+            ["rolling"] = Rolling,
+            ["deliveries"] = Deliveries,
+        };
+    }
+
+    public sealed class PickupCommand : GameClientCommand
+    {
+        public int Id;
+
+        public override JObject ToJson() => new() { ["type"] = "pickup", ["id"] = Id };
+    }
+
+    public sealed class BoxUpdateCommand : GameClientCommand
+    {
+        public int Id;
+        public string BoxType;
+        public float X;
+        public float Y;
+        public float Z;
+        public float Vx;
+        public float Vy;
+        public float Vz;
+        public int? HeldBy;
+        public float Timer;
+        public bool Delivered;
+
+        public override JObject ToJson() => new()
+        {
+            ["type"] = "boxUpdate",
+            ["id"] = Id,
+            ["boxType"] = BoxType,
+            ["x"] = X,
+            ["y"] = Y,
+            ["z"] = Z,
+            ["vx"] = Vx,
+            ["vy"] = Vy,
+            ["vz"] = Vz,
+            ["heldBy"] = HeldBy.HasValue ? (JToken)HeldBy.Value : JValue.CreateNull(),
+            ["timer"] = Timer,
+            ["delivered"] = Delivered,
+        };
+    }
+
+    public sealed class GrabCommand : GameClientCommand
+    {
+        public int TargetId;
+
+        public override JObject ToJson() => new() { ["type"] = "grab", ["targetId"] = TargetId };
+    }
+
+    public sealed class PushCommand : GameClientCommand
+    {
+        public int TargetId;
+        public float DirX;
+        public float DirZ;
+        public float Scale;
+
+        public override JObject ToJson() => new()
+        {
+            ["type"] = "push",
+            ["targetId"] = TargetId,
+            ["dirX"] = DirX,
+            ["dirZ"] = DirZ,
+            ["scale"] = Scale,
+        };
+    }
+
+    public sealed class HitCommand : GameClientCommand
+    {
+        public int TargetId;
+        public float X;
+        public float Z;
+
+        public override JObject ToJson() => new() { ["type"] = "hit", ["targetId"] = TargetId, ["x"] = X, ["z"] = Z };
+    }
+
+    public sealed class ExplodeCommand : GameClientCommand
+    {
+        public int Id;
+        public float X;
+        public float Z;
+
+        public override JObject ToJson() => new() { ["type"] = "explode", ["id"] = Id, ["x"] = X, ["z"] = Z };
+    }
+
+    public static class PackageKindWire
+    {
+        public static string ToWireString(PackageKind kind) => kind switch
+        {
+            PackageKind.High => "high",
+            PackageKind.Bomb => "bomb",
+            PackageKind.Gravity => "gravity",
+            _ => "normal",
+        };
+
+        public static PackageKind FromWireString(string value) => value switch
+        {
+            "high" => PackageKind.High,
+            "bomb" => PackageKind.Bomb,
+            "gravity" => PackageKind.Gravity,
+            _ => PackageKind.Normal,
+        };
     }
 }
