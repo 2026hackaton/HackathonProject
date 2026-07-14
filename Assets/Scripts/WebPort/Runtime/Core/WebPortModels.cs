@@ -113,6 +113,7 @@ namespace Hackathon.WebPort
         public int? OwnerId;
         public float Timer;
         public bool Delivered;
+        public bool PickupLocked;
 
         public PackageState(int id, PackageKind kind, Vector3 position)
         {

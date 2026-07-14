@@ -24,6 +24,8 @@ namespace Hackathon.WebPort
         private LocalGameTransport _localTransport;
         private WebPortRenderSystem _renderSystem;
         private WebPortUiController _ui;
+        private PackageSupplySequence _supplySequence;
+        private DeliveryDoorController _deliveryDoorController;
         private WebPortCameraRig _cameraRig;
         private UnityEngine.Camera _camera;
         private Vector3 _mouseWorld;
@@ -42,6 +44,7 @@ namespace Hackathon.WebPort
         private float _sendTimer;
         private float _truckBannerUntil;
         private bool _cameraTargetBound;
+        private bool _initialTargetDoorOpened;
 
         private PlayerState Self => _players.TryGetValue(_selfId, out PlayerState player) ? player : null;
 
@@ -116,6 +119,8 @@ namespace Hackathon.WebPort
             DisableLegacyCameraControllersOnMainCamera();
 
             _cameraRig = _layout.CameraRig;
+            _supplySequence = _layout.SupplySequence;
+            _deliveryDoorController = _layout.DeliveryDoorController;
             _renderSystem = new WebPortRenderSystem(_layout);
 
             _ui = _layout.UiController;
@@ -191,7 +196,7 @@ namespace Hackathon.WebPort
             bool useAuthoredAnchors = _layout != null && _localTransport != null;
             _start = useAuthoredAnchors ? _layout.StartPosition : payload.Start;
             _goal = useAuthoredAnchors ? _layout.GetGoalPosition(0) : payload.Goal;
-            _goalIndex = 0;
+            _goalIndex = ResolveGoalIndex(_goal);
             _goalTimer = 0f;
             _sessionEndTime = payload.SessionEndTime;
             _sessionRemainMs = WebPortConstants.SessionDurationSeconds * 1000f;
@@ -199,6 +204,7 @@ namespace Hackathon.WebPort
             _deliveredSinceTruck = 0;
             _truckBannerUntil = -1f;
             _cameraTargetBound = false;
+            _initialTargetDoorOpened = false;
 
             _players.Clear();
             _packages.Clear();
@@ -450,7 +456,6 @@ namespace Hackathon.WebPort
             foreach (int id in _packages.Where(p => p.Value.Delivered).Select(p => p.Key).ToList())
                 _packages.Remove(id);
 
-            _renderSystem.PlayTruck();
             _truckBannerUntil = now + 2.2f;
         }
 
@@ -458,6 +463,8 @@ namespace Hackathon.WebPort
         {
             JObject goal = (JObject)msg["goal"];
             _goal = new Vector3(goal["x"]!.Value<float>(), 0f, goal["z"]!.Value<float>());
+            _goalIndex = ResolveGoalIndex(_goal);
+            _deliveryDoorController?.SetActiveDeliveryDoor(_goalIndex);
         }
 
         private void OnTick(JObject msg)
@@ -539,6 +546,7 @@ namespace Hackathon.WebPort
                 _goalTimer = 0f;
                 _goalIndex = (_goalIndex + 1) % WebPortConstants.GoalPositions.Length;
                 _goal = _layout != null ? _layout.GetGoalPosition(_goalIndex) : WebPortConstants.GoalPositions[_goalIndex];
+                _deliveryDoorController?.SetActiveDeliveryDoor(_goalIndex);
             }
 
             _sessionRemainMs = Mathf.Max(_sessionEndTime - now, 0f) * 1000f;
@@ -597,14 +605,33 @@ namespace Hackathon.WebPort
 
         private void TickRefills(float now)
         {
+            if (_supplySequence != null && _supplySequence.IsPlaying)
+                return;
+
+            bool hasDueSlot = false;
             foreach (PackageSlot slot in _slots)
             {
                 if (slot.PackageId.HasValue || slot.RefillAt <= 0f || now < slot.RefillAt)
                     continue;
 
-                slot.PackageId = SpawnPackageAt(slot.Position);
-                slot.RefillAt = 0f;
+                hasDueSlot = true;
+                break;
             }
+
+            if (!hasDueSlot)
+                return;
+
+            List<PackageSlot> refillSlots = new();
+            foreach (PackageSlot slot in _slots)
+            {
+                if (slot.PackageId.HasValue || slot.RefillAt <= 0f)
+                    continue;
+
+                slot.RefillAt = -1f;
+                refillSlots.Add(slot);
+            }
+
+            PlaySupplyForSlots(refillSlots, true, null);
         }
 
         private void TickPlayer(PlayerState self, float dt, float now)
@@ -829,10 +856,12 @@ namespace Hackathon.WebPort
                 {
                     package.Position = new Vector3(package.Position.x, 0f, package.Position.z);
                     package.Velocity = new Vector3(package.Velocity.x, 0f, package.Velocity.z);
+                    package.PickupLocked = false;
                 }
             }
             else
             {
+                package.PickupLocked = false;
                 float decay = Mathf.Pow(WebPortConstants.FrictionRetain, dt);
                 package.Velocity = new Vector3(package.Velocity.x * decay, 0f, package.Velocity.z * decay);
             }
@@ -1061,6 +1090,27 @@ namespace Hackathon.WebPort
             return _layout != null && _layout.ObstacleCount > 0 ? _layout.GetObstacle(index) : WebPortConstants.Obstacles[index];
         }
 
+        private int ResolveGoalIndex(Vector3 goal)
+        {
+            int count = WebPortConstants.GoalPositions.Length;
+            int bestIndex = 0;
+            float bestDistance = float.PositiveInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 candidate = _layout != null ? _layout.GetGoalPosition(i) : WebPortConstants.GoalPositions[i];
+                Vector3 delta = candidate - goal;
+                delta.y = 0f;
+                float distance = delta.sqrMagnitude;
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    bestIndex = i;
+                }
+            }
+
+            return bestIndex;
+        }
+
         private void ResolvePackagePackageCollision(PackageState package)
         {
             if (package.Position.y > 5f)
@@ -1104,6 +1154,8 @@ namespace Hackathon.WebPort
         {
             if (package.Delivered || package.Position.y > 0f)
                 return;
+            if (_deliveryDoorController != null && !_deliveryDoorController.IsDeliveryReady(_goalIndex))
+                return;
 
             Vector3 delta = package.Position - _goal;
             delta.y = 0f;
@@ -1122,7 +1174,6 @@ namespace Hackathon.WebPort
                 _deliveredSinceTruck = 0;
                 foreach (int id in _packages.Where(p => p.Value.Delivered).Select(p => p.Key).ToList())
                     _packages.Remove(id);
-                _renderSystem.PlayTruck();
                 _truckBannerUntil = now + 2.2f;
             }
         }
@@ -1225,6 +1276,8 @@ namespace Hackathon.WebPort
             foreach (PackageState package in _packages.Values)
             {
                 if (package.HeldBy.HasValue || package.Delivered)
+                    continue;
+                if (package.PickupLocked)
                     continue;
 
                 Vector3 delta = package.Position - self.Position;
@@ -1483,10 +1536,10 @@ namespace Hackathon.WebPort
                     {
                         Position = position,
                     };
-                    slot.PackageId = SpawnPackageAt(position);
                     _slots.Add(slot);
                 }
 
+                PlaySupplyForSlots(_slots, false, OpenInitialTargetDoor);
                 return;
             }
 
@@ -1503,13 +1556,51 @@ namespace Hackathon.WebPort
                     {
                         Position = position,
                     };
-                    slot.PackageId = SpawnPackageAt(position);
                     _slots.Add(slot);
                 }
             }
+
+            PlaySupplyForSlots(_slots, false, OpenInitialTargetDoor);
         }
 
-        private int SpawnPackageAt(Vector3 position)
+        private void PlaySupplyForSlots(IReadOnlyList<PackageSlot> slots, bool refill, Action completed)
+        {
+            List<Vector3> positions = new(slots.Count);
+            for (int i = 0; i < slots.Count; i++)
+                positions.Add(slots[i].Position);
+
+            bool started = _supplySequence != null && (refill
+                ? _supplySequence.PlayRefillSupply(positions, SpawnSuppliedPackage, completed)
+                : _supplySequence.PlayInitialSupply(positions, SpawnSuppliedPackage, completed));
+
+            if (started)
+                return;
+
+            for (int i = 0; i < slots.Count; i++)
+                SpawnSuppliedPackage(i, positions[i]);
+            completed?.Invoke();
+
+            void SpawnSuppliedPackage(int index, Vector3 dropPosition)
+            {
+                if (index < 0 || index >= slots.Count)
+                    return;
+
+                PackageSlot slot = slots[index];
+                slot.PackageId = SpawnPackageAt(dropPosition, true);
+                slot.RefillAt = 0f;
+            }
+        }
+
+        private void OpenInitialTargetDoor()
+        {
+            if (_initialTargetDoorOpened)
+                return;
+
+            _initialTargetDoorOpened = true;
+            _deliveryDoorController?.SetActiveDeliveryDoor(_goalIndex);
+        }
+
+        private int SpawnPackageAt(Vector3 position, bool spawnedFromSupply = false)
         {
             int id = _nextPackageId++;
             float r = UnityEngine.Random.value;
@@ -1521,7 +1612,15 @@ namespace Hackathon.WebPort
                 _ => PackageKind.Gravity,
             };
 
-            _packages[id] = new PackageState(id, kind, position);
+            PackageState package = new(id, kind, position)
+            {
+                OwnerId = _selfId,
+                PickupLocked = spawnedFromSupply && position.y > 0.01f,
+            };
+            if (spawnedFromSupply && position.y > 0.01f)
+                package.Velocity = Vector3.down * 40f;
+
+            _packages[id] = package;
             return id;
         }
 
@@ -1657,6 +1756,7 @@ namespace Hackathon.WebPort
                 OwnerId = source.OwnerId,
                 Timer = source.Timer,
                 Delivered = source.Delivered,
+                PickupLocked = source.PickupLocked,
             };
         }
     }
