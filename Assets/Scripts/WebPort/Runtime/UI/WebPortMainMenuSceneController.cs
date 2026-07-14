@@ -16,16 +16,26 @@ namespace Hackathon.WebPort
         [Header("Scene Flow")]
         [SerializeField] private string gameplaySceneName = "GamePlayTestScene";
         [SerializeField] private StartButtonMode startButtonMode = StartButtonMode.CreateRoomAndStart;
+        [SerializeField] private bool enableMainMenuRoomRequests = true;
         [SerializeField] private bool autoStartCreatedRoom = true;
         [SerializeField] private bool wireButtonsOnAwake = true;
 
         [Header("Main Screen Effects")]
         [SerializeField] private bool enableMenuEffects = true;
+        [SerializeField] private bool enableStartButtonHoverEffect = true;
+        [SerializeField] private bool disableBoxStartButtonAnimation = true;
+        [SerializeField] private bool enableScrollingSky = true;
+        [SerializeField] private Sprite scrollingSkySprite;
+        [SerializeField] private float scrollingSkyPixelsPerSecond = 18f;
+        [SerializeField, Min(1f)] private float scrollingSkyCoverScale = 1f;
+        [SerializeField] private float scrollingSkyVerticalOffset = 70f;
+        [SerializeField] private bool mirrorScrollingSkyAlternates = true;
         [SerializeField] private RectTransform logoMotionTarget;
         [SerializeField] private RectTransform startButtonMotionTarget;
 
         [Header("Custom Main Screen")]
         [SerializeField] private bool useGeneratedFallbackIfMissingStartButton = true;
+        [SerializeField] private bool generateRoomOptionsIfMissing = true;
         [SerializeField] private GameObject background;
         [SerializeField] private GameObject logo;
         [SerializeField] private Button gameStartButton;
@@ -44,6 +54,7 @@ namespace Hackathon.WebPort
 
         private Button _gameStartButton;
         private GameObject _roomPanel;
+        private GameObject _scrollingSkyRoot;
         private InputField _roomCodeInput;
         private Text _errorText;
 
@@ -69,6 +80,8 @@ namespace Hackathon.WebPort
             if (!TryBindCustomMenu())
                 BuildGeneratedFallback();
 
+            SetupScrollingSky();
+            SetupStartButtonHoverEffect();
             SetupMenuEffects();
             ShowMain();
         }
@@ -82,6 +95,9 @@ namespace Hackathon.WebPort
             _roomPanel = roomPanel;
             _roomCodeInput = roomCodeInput;
             _errorText = errorText;
+
+            if (enableMainMenuRoomRequests && generateRoomOptionsIfMissing && startButtonMode == StartButtonMode.ShowRoomOptions && !HasRoomOptions())
+                BuildGeneratedRoomOptionsForCustomMenu();
 
             if (wireButtonsOnAwake)
             {
@@ -145,6 +161,29 @@ namespace Hackathon.WebPort
             _errorText = AddText(_roomPanel.transform, string.Empty, 12, FontStyle.Normal, new Vector2(0f, -168f), new Vector2(380f, 22f), new Color(1f, 0.38f, 0.30f, 1f));
         }
 
+        private void BuildGeneratedRoomOptionsForCustomMenu()
+        {
+            Transform parent = _gameStartButton.transform.parent != null ? _gameStartButton.transform.parent : transform;
+
+            _roomPanel = CreatePanel(parent, "Room Options Popup", new Vector2(470f, 278f), new Vector2(0f, -24f));
+            roomPanel = _roomPanel;
+
+            AddText(_roomPanel.transform, "ROOM OPTIONS", 22, FontStyle.Bold, new Vector2(0f, 88f), new Vector2(360f, 34f), new Color(1f, 0.86f, 0.34f, 1f));
+
+            createRoomButton = AddButton(_roomPanel.transform, "CREATE ROOM", new Vector2(0f, 32f), new Vector2(330f, 48f), new Color(0.95f, 0.68f, 0.16f, 1f));
+
+            _roomCodeInput = AddInput(_roomPanel.transform, "ROOM CODE", new Vector2(0f, -26f), new Vector2(330f, 42f));
+            roomCodeInput = _roomCodeInput;
+
+            joinRoomButton = AddButton(_roomPanel.transform, "JOIN ROOM", new Vector2(0f, -82f), new Vector2(330f, 46f), new Color(0.10f, 0.65f, 0.72f, 1f));
+            backButton = AddButton(_roomPanel.transform, "BACK", new Vector2(0f, -130f), new Vector2(140f, 32f), new Color(0.18f, 0.22f, 0.23f, 1f));
+
+            _errorText = AddText(_roomPanel.transform, string.Empty, 12, FontStyle.Normal, new Vector2(0f, -162f), new Vector2(380f, 22f), new Color(1f, 0.38f, 0.30f, 1f));
+            errorText = _errorText;
+
+            _roomPanel.SetActive(false);
+        }
+
         private void SetupMenuEffects()
         {
             if (!enableMenuEffects)
@@ -160,23 +199,67 @@ namespace Hackathon.WebPort
             effects.Configure(resolvedLogo, resolvedButton);
         }
 
-        private RectTransform ResolveStartButtonMotionTarget()
+        private void SetupScrollingSky()
         {
-            if (startButtonMotionTarget != null)
-                return startButtonMotionTarget;
+            if (!enableScrollingSky || scrollingSkySprite == null || background == null)
+                return;
 
+            Transform parent = background.transform.parent != null ? background.transform.parent : transform;
+            _scrollingSkyRoot = new GameObject("Scrolling Sky");
+            _scrollingSkyRoot.transform.SetParent(parent, false);
+            _scrollingSkyRoot.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSaveInEditor;
+
+            RectTransform skyRect = _scrollingSkyRoot.AddComponent<RectTransform>();
+            Stretch(skyRect);
+
+            WebPortScrollingSky scrollingSky = _scrollingSkyRoot.AddComponent<WebPortScrollingSky>();
+            scrollingSky.Configure(
+                scrollingSkySprite,
+                scrollingSkyPixelsPerSecond,
+                scrollingSkyCoverScale,
+                scrollingSkyVerticalOffset,
+                mirrorScrollingSkyAlternates);
+        }
+
+        private void SetupStartButtonHoverEffect()
+        {
+            if (!enableStartButtonHoverEffect || _gameStartButton == null)
+                return;
+
+            WebPortBoxStartButtonView boxView = _gameStartButton.GetComponent<WebPortBoxStartButtonView>();
+            if (disableBoxStartButtonAnimation && boxView != null)
+                boxView.enabled = false;
+
+            WebPortStartButtonHoverEffect hover = _gameStartButton.GetComponent<WebPortStartButtonHoverEffect>();
+            if (hover == null)
+                hover = _gameStartButton.gameObject.AddComponent<WebPortStartButtonHoverEffect>();
+
+            hover.Configure(ResolveStartButtonHoverTarget(), _gameStartButton.targetGraphic);
+        }
+
+        private RectTransform ResolveStartButtonHoverTarget()
+        {
             if (_gameStartButton == null)
-                return null;
-
-            // Box-style start buttons own their hover motion, so the global idle motion stays off unless a wrapper is explicitly assigned.
-            if (_gameStartButton.GetComponent<WebPortBoxStartButtonView>() != null)
                 return null;
 
             return _gameStartButton.GetComponent<RectTransform>();
         }
 
+        private RectTransform ResolveStartButtonMotionTarget()
+        {
+            if (startButtonMotionTarget != null)
+                return startButtonMotionTarget;
+            return null;
+        }
+
         public void OnGameStartClicked()
         {
+            if (!enableMainMenuRoomRequests)
+            {
+                SceneManager.LoadScene(gameplaySceneName);
+                return;
+            }
+
             if (startButtonMode == StartButtonMode.ShowRoomOptions && HasRoomOptions())
             {
                 ShowRoomOptionsPanel();
@@ -188,17 +271,28 @@ namespace Hackathon.WebPort
 
         private bool HasRoomOptions()
         {
-            return _roomPanel != null && createRoomButton != null && joinRoomButton != null ||
-                   _roomPanel != null && _roomCodeInput != null;
+            return _roomPanel != null && (createRoomButton != null || joinRoomButton != null || _roomCodeInput != null);
         }
 
         public void OnCreateRoomClicked()
         {
+            if (!enableMainMenuRoomRequests)
+            {
+                SceneManager.LoadScene(gameplaySceneName);
+                return;
+            }
+
             WebPortMenuSceneRequest.LoadAndCreateRoom(gameplaySceneName, autoStartCreatedRoom);
         }
 
         public void OnJoinRoomClicked()
         {
+            if (!enableMainMenuRoomRequests)
+            {
+                SceneManager.LoadScene(gameplaySceneName);
+                return;
+            }
+
             string code = _roomCodeInput != null ? _roomCodeInput.text.Trim().ToUpperInvariant() : string.Empty;
             if (code.Length < 4)
             {
@@ -368,6 +462,9 @@ namespace Hackathon.WebPort
         {
             if (background != null)
                 background.transform.SetAsFirstSibling();
+
+            if (_scrollingSkyRoot != null)
+                _scrollingSkyRoot.transform.SetAsFirstSibling();
 
             if (logo != null)
                 logo.transform.SetAsLastSibling();

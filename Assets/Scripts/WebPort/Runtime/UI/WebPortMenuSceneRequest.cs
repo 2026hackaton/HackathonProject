@@ -18,6 +18,9 @@ namespace Hackathon.WebPort
         private static RequestKind _pendingKind;
         private static string _pendingRoomCode;
         private static bool _pendingAutoStart;
+        private static bool _sceneRequestInProgress;
+
+        public static bool HasPendingSceneRequest => _pendingKind != RequestKind.None || _sceneRequestInProgress;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Register()
@@ -50,6 +53,7 @@ namespace Hackathon.WebPort
             GameObject runnerObject = new("WebPort Menu Scene Request Runner");
             UnityEngine.Object.DontDestroyOnLoad(runnerObject);
             WebPortMenuSceneRequestRunner runner = runnerObject.AddComponent<WebPortMenuSceneRequestRunner>();
+            _sceneRequestInProgress = true;
             runner.Run(_pendingKind == RequestKind.CreateRoom, _pendingRoomCode, _pendingAutoStart);
 
             _pendingKind = RequestKind.None;
@@ -84,22 +88,33 @@ namespace Hackathon.WebPort
                     if (ui == null)
                         continue;
 
+                    ui.HidePanelsForSceneRequest();
+
                     if (_createRoom)
                     {
                         InvokeUiEvent(ui, "CreateRoomRequested");
                         if (_autoStart)
+                        {
+                            ui.HidePanelsForSceneRequest();
                             yield return StartCoroutine(StartHostGameWhenReady(ui));
+                        }
+                        else
+                        {
+                            _sceneRequestInProgress = false;
+                        }
 
                         Destroy(gameObject);
                         yield break;
                     }
 
                     InvokeUiEvent(ui, "JoinRoomRequested", _roomCode);
+                    _sceneRequestInProgress = false;
                     Destroy(gameObject);
                     yield break;
                 }
 
                 Debug.LogWarning("[WebPortMenuSceneRequest] Could not find the existing WebPort menu request controls after loading the gameplay scene.");
+                _sceneRequestInProgress = false;
                 Destroy(gameObject);
             }
 
@@ -114,10 +129,12 @@ namespace Hackathon.WebPort
                     if (IsHostLobbyReady())
                     {
                         InvokeUiEvent(ui, "StartGameRequested");
+                        _sceneRequestInProgress = false;
                         yield break;
                     }
                 }
 
+                _sceneRequestInProgress = false;
                 Debug.LogWarning("[WebPortMenuSceneRequest] Created a room, but host lobby state was not ready before the auto-start timeout.");
             }
 

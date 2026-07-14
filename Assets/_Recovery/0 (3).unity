@@ -637,8 +637,8 @@ MonoBehaviour:
   enableScrollingSky: 1
   scrollingSkySprite: {fileID: 505631012, guid: 1e83a7c0e2b746f47821329e4208203f, type: 3}
   scrollingSkyPixelsPerSecond: 18
-  scrollingSkyCoverScale: 1
-  scrollingSkyVerticalOffset: 70
+  scrollingSkyCoverScale: 1.06
+  scrollingSkyVerticalOffset: 0
   mirrorScrollingSkyAlternates: 1
   logoMotionTarget: {fileID: 0}
   startButtonMotionTarget: {fileID: 0}
@@ -1140,7 +1140,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: -846673344, guid: f793888fb4e97f94fb21a4e07b4ae6ce, type: 3}
+  m_Sprite: {fileID: 7506227853426266301, guid: 62da7de16e87693499ee4ac20ebf7dfc, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
