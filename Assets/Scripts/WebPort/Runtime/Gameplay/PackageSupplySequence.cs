@@ -42,6 +42,7 @@ namespace Hackathon.WebPort
 
         public bool IsPlaying => _isPlaying;
         public float DropHeight => dropHeight;
+        public float PlanarJitter => planarJitter;
 
         private void Awake()
         {

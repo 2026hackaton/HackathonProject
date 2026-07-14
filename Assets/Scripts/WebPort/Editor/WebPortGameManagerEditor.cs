@@ -91,7 +91,7 @@ namespace Hackathon.WebPort.Editor
             Transform goalMarker = CreateGoalMarker(staticWorld, goalPoints[0].position);
             PackageSupplySequence supplySequence = CreateSupplySequence(staticWorld, config, notification);
             DeliveryDoorController deliveryDoorController = CreateDeliveryDoors(staticWorld, goalPoints);
-            Transform truck = CreateVehicle(vehicles, "Truck", config.truckPrefab, config.truckTransform, new Vector3(50f, 30f, 26f), WebPortVisuals.CreateLit(config.truckColor, true));
+            Transform truck = CreateVehicle(vehicles, "Truck", config.truckPrefab, config.truckTransform, new Vector3(50f, 30f, 26f), WebPortVisuals.CreateLit(config.truckColor, true), true);
             Transform bus = CreateVehicle(vehicles, "Bus", config.busPrefab, config.busTransform, new Vector3(60f, 34f, 30f), WebPortVisuals.CreateLit(WebPortVisuals.Yellow));
 
             CreateGround(staticWorld);
@@ -523,7 +523,7 @@ namespace Hackathon.WebPort.Editor
             Object.DestroyImmediate(visual.GetComponent<Collider>());
         }
 
-        private static Transform CreateVehicle(Transform parent, string name, GameObject prefab, WebPortVisualConfig.PrefabTransform prefabTransform, Vector3 size, Material fallbackMaterial)
+        private static Transform CreateVehicle(Transform parent, string name, GameObject prefab, WebPortVisualConfig.PrefabTransform prefabTransform, Vector3 size, Material fallbackMaterial, bool preservePrefabTransform = false)
         {
             Transform root = CreateChild(parent, name);
             GameObject visual;
@@ -531,7 +531,8 @@ namespace Hackathon.WebPort.Editor
             {
                 visual = (GameObject)PrefabUtility.InstantiatePrefab(prefab, root);
                 visual.name = "Visual";
-                prefabTransform.ApplyTo(visual.transform);
+                if (!preservePrefabTransform)
+                    prefabTransform.ApplyTo(visual.transform);
                 RemoveColliders(visual);
             }
             else
@@ -588,7 +589,6 @@ namespace Hackathon.WebPort.Editor
             {
                 GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(config.truckPrefab, root);
                 instance.name = "Visual";
-                config.truckTransform.ApplyTo(instance.transform);
                 RemoveColliders(instance);
             }
             else

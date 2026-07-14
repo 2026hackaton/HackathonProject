@@ -201,7 +201,7 @@ namespace Hackathon.WebPort
                 if (_boundShockwaves[slot] != e)
                 {
                     _boundShockwaves[slot] = e;
-                    _shockwaveFilters[slot].sharedMesh = WebPortVisuals.CreateRingMesh(0.9f, 1f, 28, -e.Angle - WebPortConstants.PushArcHalfAngle, WebPortConstants.PushArcHalfAngle * 2f);
+                    _shockwaveFilters[slot].sharedMesh = WebPortVisuals.CreateRingMesh(0.9f, 1f, 28, e.Angle - WebPortConstants.PushArcHalfAngle, WebPortConstants.PushArcHalfAngle * 2f);
                 }
 
                 float radius = Mathf.Max(e.Radius * Mathf.Min(p * 1.6f, 1f), 1f);

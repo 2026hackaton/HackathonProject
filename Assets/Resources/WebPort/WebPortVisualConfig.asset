@@ -94,7 +94,7 @@ MonoBehaviour:
   pillarObstaclePrefab: {fileID: 0}
   wallObstaclePrefab: {fileID: 0}
   rockObstaclePrefab: {fileID: 0}
-  truckPrefab: {fileID: 0}
+  truckPrefab: {fileID: 7563635078866443161, guid: 3b84ab7bbf0bc03459162fe1fa40c3d6, type: 3}
   busPrefab: {fileID: 0}
   normalPackageTransform:
     localPosition: {x: 0, y: 0, z: 0}
