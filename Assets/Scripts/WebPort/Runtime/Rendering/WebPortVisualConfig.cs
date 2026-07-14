@@ -29,6 +29,114 @@ namespace Hackathon.WebPort
             }
         }
 
+        [Serializable]
+        public struct PlayerMotionSprites
+        {
+            [Tooltip("Frames used while this motion is standing still.")]
+            public Sprite[] idleFrames;
+
+            [Tooltip("Frames used while this motion is moving.")]
+            public Sprite[] moveFrames;
+
+            public Sprite GetFrame(bool moving, float now, float fallbackFrameSeconds)
+            {
+                Sprite sprite = moving
+                    ? GetFrame(moveFrames, now, fallbackFrameSeconds)
+                    : GetFrame(idleFrames, now, fallbackFrameSeconds);
+
+                if (sprite != null)
+                    return sprite;
+
+                return moving
+                    ? GetFrame(idleFrames, now, fallbackFrameSeconds)
+                    : GetFrame(moveFrames, now, fallbackFrameSeconds);
+            }
+
+            private static Sprite GetFrame(Sprite[] frames, float now, float fallbackFrameSeconds)
+            {
+                if (frames == null || frames.Length == 0)
+                    return null;
+
+                float frameSeconds = Mathf.Max(fallbackFrameSeconds, 0.01f);
+                int start = Mathf.FloorToInt(now / frameSeconds) % frames.Length;
+                for (int i = 0; i < frames.Length; i++)
+                {
+                    Sprite sprite = frames[(start + i) % frames.Length];
+                    if (sprite != null)
+                        return sprite;
+                }
+
+                return null;
+            }
+        }
+
+        [Serializable]
+        public struct PlayerSpriteSheet
+        {
+            public Sprite sheet;
+            [Min(1)] public int columns;
+            [Min(1)] public int rows;
+            [Min(1)] public int frameCount;
+
+            public bool TryGetFrame(float now, float fallbackFrameSeconds, out Texture2D texture, out Vector2 scale, out Vector2 offset)
+            {
+                texture = null;
+                scale = Vector2.one;
+                offset = Vector2.zero;
+
+                if (sheet == null || sheet.texture == null)
+                    return false;
+
+                int safeColumns = Mathf.Max(columns, 1);
+                int safeRows = Mathf.Max(rows, 1);
+                int safeFrameCount = Mathf.Max(frameCount, 1);
+                float frameSeconds = Mathf.Max(fallbackFrameSeconds, 0.01f);
+                int frame = Mathf.FloorToInt(now / frameSeconds) % safeFrameCount;
+                int column = frame % safeColumns;
+                int row = (frame / safeColumns) % safeRows;
+
+                texture = sheet.texture;
+                Rect rect = sheet.textureRect;
+                float cellWidth = rect.width / safeColumns;
+                float cellHeight = rect.height / safeRows;
+                float textureWidth = Mathf.Max(texture.width, 1);
+                float textureHeight = Mathf.Max(texture.height, 1);
+
+                float x = rect.x + column * cellWidth;
+                float y = rect.y + rect.height - ((row + 1f) * cellHeight);
+                scale = new Vector2(cellWidth / textureWidth, cellHeight / textureHeight);
+                offset = new Vector2(x / textureWidth, y / textureHeight);
+                return true;
+            }
+        }
+
+        [Serializable]
+        public struct PlayerMotionSpriteSheets
+        {
+            public PlayerSpriteSheet idleSheet;
+            public PlayerSpriteSheet moveSheet;
+
+            public bool TryGetFrame(bool moving, float now, float fallbackFrameSeconds, out Texture2D texture, out Vector2 scale, out Vector2 offset)
+            {
+                if (moving && moveSheet.TryGetFrame(now, fallbackFrameSeconds, out texture, out scale, out offset))
+                    return true;
+
+                if (!moving && idleSheet.TryGetFrame(now, fallbackFrameSeconds, out texture, out scale, out offset))
+                    return true;
+
+                if (moving && idleSheet.TryGetFrame(now, fallbackFrameSeconds, out texture, out scale, out offset))
+                    return true;
+
+                if (!moving && moveSheet.TryGetFrame(now, fallbackFrameSeconds, out texture, out scale, out offset))
+                    return true;
+
+                texture = null;
+                scale = Vector2.one;
+                offset = Vector2.zero;
+                return false;
+            }
+        }
+
         public enum UiSpriteMode
         {
             Auto,
@@ -118,11 +226,57 @@ namespace Hackathon.WebPort
             }
         }
 
-        [Header("Player Sprite Sheets")]
-        public Texture2D idleSprite;
-        public Texture2D holdingBoxSprite;
-        public Texture2D sideSprite;
-        public Texture2D sideHoldingBoxSprite;
+        [Header("Player Sprite Animations")]
+        [Tooltip("Front-facing frames without a box. Has separate idle and move frame arrays.")]
+        public PlayerMotionSprites frontSprites;
+        [Tooltip("Front-facing frames while holding one or more boxes.")]
+        public PlayerMotionSprites frontHoldingSprites;
+        [Tooltip("Side-facing frames without a box. The runtime flips these for left/right.")]
+        public PlayerMotionSprites sideSprites;
+        [Tooltip("Side-facing frames while holding one or more boxes. The runtime flips these for left/right.")]
+        public PlayerMotionSprites sideHoldingSprites;
+        [Tooltip("Used by every Sprite frame array unless the legacy texture-sheet fallback is active.")]
+        [Min(0.01f)] public float playerSpriteFrameSeconds = 0.13f;
+
+        [Header("Player Sprite Sheet Animations")]
+        [Tooltip("Front-facing Sprite sheets without a box. Each sheet is cut by columns/rows/frameCount.")]
+        public PlayerMotionSpriteSheets frontSpriteSheets;
+        [Tooltip("Front-facing Sprite sheets while holding one or more boxes.")]
+        public PlayerMotionSpriteSheets frontHoldingSpriteSheets;
+        [Tooltip("Side-facing Sprite sheets without a box. The runtime flips these for left/right.")]
+        public PlayerMotionSpriteSheets sideSpriteSheets;
+        [Tooltip("Side-facing Sprite sheets while holding one or more boxes. The runtime flips these for left/right.")]
+        public PlayerMotionSpriteSheets sideHoldingSpriteSheets;
+        [Tooltip("Used by Sprite sheet animations. Leave per-sheet frame count at the number of visible frames.")]
+        [Min(0.01f)] public float playerSpriteSheetFrameSeconds = 0.13f;
+
+        [Header("Player Sprite Layout")]
+        [Tooltip("Billboard width in world units. Reduce this if imported character sprites look too large.")]
+        [Min(1f)] public float playerSpriteWorldWidth = 68f;
+        [Tooltip("Billboard height in world units. Reduce this if imported character sprites look too tall.")]
+        [Min(1f)] public float playerSpriteWorldHeight = 68f;
+        [Tooltip("Local offset from the gameplay position to the visual sprite center.")]
+        public Vector3 playerSpriteLocalPosition = new(0f, 24f, 0f);
+        [Tooltip("Extra local scale applied after the billboard size. X is also flipped for left/right facing.")]
+        public Vector3 playerSpriteLocalScale = Vector3.one;
+
+        [Header("Legacy Player Texture Sheets")]
+        [Tooltip("Front-facing idle Texture2D sheet. Drag a PNG here directly.")]
+        public Texture2D frontIdleTexture;
+        [Tooltip("Front-facing move Texture2D sheet. Drag a PNG here directly.")]
+        public Texture2D frontMoveTexture;
+        [Tooltip("Front-facing idle Texture2D sheet while holding one or more boxes.")]
+        public Texture2D frontHoldingIdleTexture;
+        [Tooltip("Front-facing move Texture2D sheet while holding one or more boxes.")]
+        public Texture2D frontHoldingMoveTexture;
+        [Tooltip("Side-facing idle Texture2D sheet. The runtime flips this for left/right.")]
+        public Texture2D sideIdleTexture;
+        [Tooltip("Side-facing move Texture2D sheet. The runtime flips this for left/right.")]
+        public Texture2D sideMoveTexture;
+        [Tooltip("Side-facing idle Texture2D sheet while holding one or more boxes.")]
+        public Texture2D sideHoldingIdleTexture;
+        [Tooltip("Side-facing move Texture2D sheet while holding one or more boxes.")]
+        public Texture2D sideHoldingMoveTexture;
         [Min(1)] public int spriteColumns = 3;
         [Min(1)] public int spriteRows = 4;
         [Min(1)] public int spriteFrameCount = 10;
@@ -229,18 +383,145 @@ namespace Hackathon.WebPort
                 return config;
 
             WebPortVisualConfig fallback = CreateInstance<WebPortVisualConfig>();
-            fallback.idleSprite = Resources.Load<Texture2D>("WebPort/Art/qt_2");
-            fallback.holdingBoxSprite = Resources.Load<Texture2D>("WebPort/Art/qt_holding_box");
-            fallback.sideSprite = Resources.Load<Texture2D>("WebPort/Art/qt_right_side");
-            fallback.sideHoldingBoxSprite = Resources.Load<Texture2D>("WebPort/Art/qt_right_side_holding_box");
+            fallback.frontMoveTexture = Resources.Load<Texture2D>("WebPort/Art/qt_2");
+            fallback.frontHoldingMoveTexture = Resources.Load<Texture2D>("WebPort/Art/qt_holding_box");
+            fallback.sideMoveTexture = Resources.Load<Texture2D>("WebPort/Art/qt_right_side");
+            fallback.sideHoldingMoveTexture = Resources.Load<Texture2D>("WebPort/Art/qt_right_side_holding_box");
             return fallback;
         }
 
-        public Texture2D GetPlayerTexture(bool holding, bool side)
+        public Sprite GetPlayerSpriteFrame(bool holding, bool side, bool moving, float now)
+        {
+            float frameSeconds = Mathf.Max(playerSpriteFrameSeconds, 0.01f);
+
+            Sprite sprite = GetPlayerMotion(holding, side).GetFrame(moving, now, frameSeconds);
+            if (sprite != null)
+                return sprite;
+
+            if (side)
+            {
+                sprite = GetPlayerMotion(holding, false).GetFrame(moving, now, frameSeconds);
+                if (sprite != null)
+                    return sprite;
+            }
+
+            if (holding)
+            {
+                sprite = GetPlayerMotion(false, side).GetFrame(moving, now, frameSeconds);
+                if (sprite != null)
+                    return sprite;
+            }
+
+            if (holding && side)
+                return frontSprites.GetFrame(moving, now, frameSeconds);
+
+            return null;
+        }
+
+        public bool TryGetPlayerSpriteSheetFrame(bool holding, bool side, bool moving, float now, out Texture2D texture, out Vector2 scale, out Vector2 offset)
+        {
+            float frameSeconds = Mathf.Max(playerSpriteSheetFrameSeconds, 0.01f);
+
+            if (GetPlayerSheetMotion(holding, side).TryGetFrame(moving, now, frameSeconds, out texture, out scale, out offset))
+                return true;
+
+            if (side && GetPlayerSheetMotion(holding, false).TryGetFrame(moving, now, frameSeconds, out texture, out scale, out offset))
+                return true;
+
+            if (holding && GetPlayerSheetMotion(false, side).TryGetFrame(moving, now, frameSeconds, out texture, out scale, out offset))
+                return true;
+
+            if (holding && side && frontSpriteSheets.TryGetFrame(moving, now, frameSeconds, out texture, out scale, out offset))
+                return true;
+
+            texture = null;
+            scale = Vector2.one;
+            offset = Vector2.zero;
+            return false;
+        }
+
+        public bool TryGetPlayerTextureSheetFrame(bool holding, bool side, bool moving, float now, out Texture2D texture, out Vector2 scale, out Vector2 offset)
+        {
+            texture = GetLegacyPlayerTexture(holding, side, moving);
+            scale = Vector2.one;
+            offset = Vector2.zero;
+
+            if (texture == null)
+                return false;
+
+            CalculateLegacyTextureSheetUv(now, out scale, out offset);
+            return true;
+        }
+
+        public Vector2 GetPlayerSpriteWorldSize()
+        {
+            return new Vector2(
+                Mathf.Max(playerSpriteWorldWidth, 1f),
+                Mathf.Max(playerSpriteWorldHeight, 1f));
+        }
+
+        public Vector3 GetPlayerSpriteLocalScale()
+        {
+            return playerSpriteLocalScale == Vector3.zero ? Vector3.one : playerSpriteLocalScale;
+        }
+
+        private PlayerMotionSprites GetPlayerMotion(bool holding, bool side)
         {
             if (holding)
-                return side ? sideHoldingBoxSprite : holdingBoxSprite;
-            return side ? sideSprite : idleSprite;
+                return side ? sideHoldingSprites : frontHoldingSprites;
+            return side ? sideSprites : frontSprites;
+        }
+
+        private PlayerMotionSpriteSheets GetPlayerSheetMotion(bool holding, bool side)
+        {
+            if (holding)
+                return side ? sideHoldingSpriteSheets : frontHoldingSpriteSheets;
+            return side ? sideSpriteSheets : frontSpriteSheets;
+        }
+
+        private Texture2D GetLegacyPlayerTexture(bool holding, bool side, bool moving)
+        {
+            Texture2D primary;
+            Texture2D fallback;
+
+            if (holding)
+            {
+                if (side)
+                {
+                    primary = moving ? sideHoldingMoveTexture : sideHoldingIdleTexture;
+                    fallback = moving ? sideHoldingIdleTexture : sideHoldingMoveTexture;
+                    return primary != null ? primary : fallback;
+                }
+
+                primary = moving ? frontHoldingMoveTexture : frontHoldingIdleTexture;
+                fallback = moving ? frontHoldingIdleTexture : frontHoldingMoveTexture;
+                return primary != null ? primary : fallback;
+            }
+
+            if (side)
+            {
+                primary = moving ? sideMoveTexture : sideIdleTexture;
+                fallback = moving ? sideIdleTexture : sideMoveTexture;
+                return primary != null ? primary : fallback;
+            }
+
+            primary = moving ? frontMoveTexture : frontIdleTexture;
+            fallback = moving ? frontIdleTexture : frontMoveTexture;
+            return primary != null ? primary : fallback;
+        }
+
+        private void CalculateLegacyTextureSheetUv(float now, out Vector2 scale, out Vector2 offset)
+        {
+            int columns = Mathf.Max(spriteColumns, 1);
+            int rows = Mathf.Max(spriteRows, 1);
+            int frameCount = Mathf.Max(spriteFrameCount, 1);
+            float frameSeconds = Mathf.Max(spriteFrameSeconds, 0.01f);
+            int frame = Mathf.FloorToInt(now / frameSeconds) % frameCount;
+            int column = frame % columns;
+            int row = (frame / columns) % rows;
+
+            scale = new Vector2(1f / columns, 1f / rows);
+            offset = new Vector2(column / (float)columns, 1f - ((row + 1f) / rows));
         }
 
         public GameObject GetPackagePrefab(PackageKind kind)

@@ -8,11 +8,6 @@ namespace Hackathon.WebPort
     {
         private const float MoveFacingThreshold = 15f;
 
-        private static Texture2D _idleTexture;
-        private static Texture2D _boxTexture;
-        private static Texture2D _sideTexture;
-        private static Texture2D _sideBoxTexture;
-
         private readonly bool _isSelf;
         private readonly Transform _root;
         private readonly Transform _spriteTransform;
@@ -21,6 +16,7 @@ namespace Hackathon.WebPort
         private readonly Transform _ringTransform;
         private readonly Transform _pushRingTransform;
         private readonly Transform _highRingTransform;
+        private readonly Vector3 _spriteBaseScale;
 
         private Vector3 _previousPosition;
         private bool _hasPreviousPosition;
@@ -32,7 +28,6 @@ namespace Hackathon.WebPort
         public WebPortPlayerView(Transform parent, bool isSelf, string name)
         {
             _isSelf = isSelf;
-            EnsureTextures();
 
             _root = new GameObject(name).transform;
             _root.SetParent(parent, false);
@@ -48,12 +43,17 @@ namespace Hackathon.WebPort
             _highRingTransform.localRotation = Quaternion.Euler(90f, 0f, 0f);
             _highRingTransform.gameObject.SetActive(false);
 
+            WebPortVisualConfig config = WebPortVisuals.Config;
+            Vector2 spriteSize = config.GetPlayerSpriteWorldSize();
+            _spriteBaseScale = config.GetPlayerSpriteLocalScale();
+
             GameObject spriteObject = new("Sprite");
             spriteObject.transform.SetParent(_root, false);
-            spriteObject.transform.localPosition = new Vector3(0f, 24f, 0f);
-            spriteObject.AddComponent<MeshFilter>().sharedMesh = WebPortVisuals.CreateQuadMesh(68f, 68f);
+            spriteObject.transform.localPosition = config.playerSpriteLocalPosition;
+            spriteObject.transform.localScale = _spriteBaseScale;
+            spriteObject.AddComponent<MeshFilter>().sharedMesh = WebPortVisuals.CreateQuadMesh(spriteSize.x, spriteSize.y);
             _spriteRenderer = spriteObject.AddComponent<MeshRenderer>();
-            _spriteMaterial = WebPortVisuals.CreateSpriteMaterial(_idleTexture);
+            _spriteMaterial = WebPortVisuals.CreateSpriteMaterial(config.frontMoveTexture);
             _spriteRenderer.sharedMaterial = _spriteMaterial;
             _spriteRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             _spriteRenderer.receiveShadows = false;
@@ -80,7 +80,8 @@ namespace Hackathon.WebPort
             _previousPosition = current;
             _hasPreviousPosition = true;
 
-            Vector3 facingDirection = move.sqrMagnitude > MoveFacingThreshold * MoveFacingThreshold
+            bool moving = move.sqrMagnitude > MoveFacingThreshold * MoveFacingThreshold;
+            Vector3 facingDirection = moving
                 ? move.normalized
                 : new Vector3(Mathf.Cos(player.Angle), 0f, Mathf.Sin(player.Angle));
 
@@ -90,16 +91,30 @@ namespace Hackathon.WebPort
             bool holding = held.Count > 0;
             bool holdingHigh = held.Any(p => p.Kind == PackageKind.High);
             bool facingSide = ResolveFacingSide(screenFacing);
-            Texture2D texture = holding ? (facingSide ? _sideBoxTexture : _boxTexture) : (facingSide ? _sideTexture : _idleTexture);
 
-            SetTexture(texture);
-            SetFrame(now);
+            Sprite spriteFrame = WebPortVisuals.Config.GetPlayerSpriteFrame(holding, facingSide, moving, now);
+            if (spriteFrame != null)
+            {
+                SetSpriteFrame(spriteFrame);
+            }
+            else if (WebPortVisuals.Config.TryGetPlayerSpriteSheetFrame(holding, facingSide, moving, now, out Texture2D sheetTexture, out Vector2 sheetScale, out Vector2 sheetOffset))
+            {
+                SetSheetFrame(sheetTexture, sheetScale, sheetOffset);
+            }
+            else if (WebPortVisuals.Config.TryGetPlayerTextureSheetFrame(holding, facingSide, moving, now, out Texture2D textureSheet, out Vector2 textureScale, out Vector2 textureOffset))
+            {
+                SetSheetFrame(textureSheet, textureScale, textureOffset);
+            }
+            else
+            {
+                SetFallbackTexture();
+            }
 
             if (Mathf.Abs(screenFacing.x) > WebPortVisuals.Config.diagonalFacingDeadZone)
                 _horizontalSign = screenFacing.x < 0f ? -1f : 1f;
 
             float xScale = _horizontalSign;
-            _spriteTransform.localScale = new Vector3(xScale, 1f, 1f);
+            _spriteTransform.localScale = new Vector3(xScale * Mathf.Abs(_spriteBaseScale.x), _spriteBaseScale.y, _spriteBaseScale.z);
 
             if (camera != null)
                 _spriteTransform.rotation = Quaternion.LookRotation(camera.transform.forward, camera.transform.up);
@@ -206,48 +221,49 @@ namespace Hackathon.WebPort
             return new Vector2(Vector3.Dot(worldDirection, screenRight), Vector3.Dot(worldDirection, screenUp));
         }
 
-        private void SetFrame(float now)
+        private void SetSpriteFrame(Sprite sprite)
         {
-            WebPortVisualConfig config = WebPortVisuals.Config;
-            int columns = Mathf.Max(config.spriteColumns, 1);
-            int rows = Mathf.Max(config.spriteRows, 1);
-            int frameCount = Mathf.Max(config.spriteFrameCount, 1);
-            float frameSeconds = Mathf.Max(config.spriteFrameSeconds, 0.01f);
-            int frame = Mathf.FloorToInt(now / frameSeconds) % frameCount;
-            int column = frame % columns;
-            int row = (frame / columns) % rows;
+            Texture2D texture = sprite.texture;
+            if (texture == null)
+                return;
 
-            Vector2 scale = new(1f / columns, 1f / rows);
-            Vector2 offset = new(column / (float)columns, 1f - ((row + 1f) / rows));
+            texture.filterMode = FilterMode.Point;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            SetTexture(texture);
+
+            Rect rect = sprite.textureRect;
+            float textureWidth = Mathf.Max(texture.width, 1);
+            float textureHeight = Mathf.Max(texture.height, 1);
+            Vector2 scale = new(rect.width / textureWidth, rect.height / textureHeight);
+            Vector2 offset = new(rect.x / textureWidth, rect.y / textureHeight);
             WebPortVisuals.SetTextureOffset(_spriteMaterial, scale, offset);
         }
 
-        private static void EnsureTextures()
+        private void SetSheetFrame(Texture2D texture, Vector2 scale, Vector2 offset)
         {
-            if (_idleTexture != null)
+            if (texture == null)
                 return;
 
-            WebPortVisualConfig config = WebPortVisuals.Config;
-            _idleTexture = LoadTexture(config.idleSprite, "qt_2");
-            _boxTexture = LoadTexture(config.holdingBoxSprite, "qt_holding_box");
-            _sideTexture = LoadTexture(config.sideSprite, "qt_right_side");
-            _sideBoxTexture = LoadTexture(config.sideHoldingBoxSprite, "qt_right_side_holding_box");
+            texture.filterMode = FilterMode.Point;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            SetTexture(texture);
+            WebPortVisuals.SetTextureOffset(_spriteMaterial, scale, offset);
         }
 
-        private static Texture2D LoadTexture(Texture2D configured, string fallbackName)
+        private void SetFallbackTexture()
         {
-            Texture2D texture = configured != null ? configured : Resources.Load<Texture2D>($"WebPort/Art/{fallbackName}");
+            Texture2D texture = WebPortVisuals.Config.frontMoveTexture;
             if (texture == null)
             {
-                Texture2D fallback = new(2, 2, TextureFormat.RGBA32, false);
-                fallback.SetPixels(new[] { Color.white, Color.white, Color.white, Color.white });
-                fallback.Apply();
-                return fallback;
+                texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                texture.SetPixels(new[] { Color.white, Color.white, Color.white, Color.white });
+                texture.Apply();
             }
 
             texture.filterMode = FilterMode.Point;
             texture.wrapMode = TextureWrapMode.Clamp;
-            return texture;
+            SetTexture(texture);
+            WebPortVisuals.SetTextureOffset(_spriteMaterial, Vector2.one, Vector2.zero);
         }
     }
 

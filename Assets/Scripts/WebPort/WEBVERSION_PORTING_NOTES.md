@@ -48,6 +48,37 @@ Visual replacement workflow:
 - You can also open it from `Tools > WebVersion Port > Select Visual Config`.
 - Replace player sprite sheets, package prefabs/materials, obstacle prefabs/materials,
   vehicle prefabs/materials, UI sprites/colors/fonts, and fallback colors there without changing gameplay code.
+- Player animation now supports Sprite frame arrays directly. Use
+  `frontSprites`, `frontHoldingSprites`, `sideSprites`, and `sideHoldingSprites`
+  in `WebPortVisualConfig`; each motion has separate `idleFrames` and
+  `moveFrames`.
+- Player animation also supports Sprite sheets through `frontSpriteSheets`,
+  `frontHoldingSpriteSheets`, `sideSpriteSheets`, and `sideHoldingSpriteSheets`.
+  Each motion has an `idleSheet` and `moveSheet` with its own `sheet`,
+  `columns`, `rows`, and `frameCount`.
+- Texture2D PNG sheets with separate idle/move states are assigned directly in
+  the `Legacy Player Texture Sheets` section. Use `frontIdleTexture`,
+  `frontMoveTexture`, `frontHoldingIdleTexture`, `frontHoldingMoveTexture`,
+  `sideIdleTexture`, `sideMoveTexture`, `sideHoldingIdleTexture`, and
+  `sideHoldingMoveTexture` when the imported PNG is kept as a Texture2D instead
+  of Sprite.
+- Runtime player animation priority is: explicit `Sprite[]` frames first,
+  Sprite sheet grid second, direct legacy Texture2D idle/move fields third.
+- Sprite sheet fields cut the assigned Sprite's `textureRect`, so either a full
+  single-Sprite sheet or an atlas region can be used. If the image is imported
+  as Multiple sprites, assign the individual frames to the `Sprite[]` arrays
+  instead.
+- Side-facing Sprite frames are flipped at runtime for left/right movement, so
+  one right-facing or left-facing side animation set is enough.
+- If a Sprite motion array is empty, the runtime falls back to the closest
+  available Sprite motion. If no Sprite frames are assigned, it uses the direct
+  legacy Texture2D fields in the same section. Idle texture fields are optional;
+  when an idle field is empty, the matching move texture is reused.
+- Character visual size is controlled by `playerSpriteWorldWidth`,
+  `playerSpriteWorldHeight`, `playerSpriteLocalPosition`, and
+  `playerSpriteLocalScale`. Reduce width/height or scale if newly imported
+  Sprite frames look too large. These fields only affect visuals, not gameplay
+  collision or movement.
 - `uiPrefab` is optional. If it is empty, the game builds the default runtime UI.
   If it is assigned, the prefab is instantiated under the generated Canvas and
   drives Menu, Lobby, Results, and HUD through `WebPortUiPrefabView`.
