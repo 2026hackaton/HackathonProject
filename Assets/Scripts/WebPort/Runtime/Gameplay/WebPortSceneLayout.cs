@@ -3,14 +3,6 @@ using UnityEngine.EventSystems;
 
 namespace Hackathon.WebPort
 {
-    [System.Serializable]
-    public sealed class WebPortObstacleEntry
-    {
-        public Transform root;
-        public ObstacleKind kind;
-        [Min(1f)] public float radius = 48f;
-    }
-
     public sealed class WebPortSceneLayout : MonoBehaviour
     {
         [Header("Config")]
@@ -39,10 +31,14 @@ namespace Hackathon.WebPort
         [SerializeField] private Transform startPoint;
         [SerializeField] private Transform[] goalPoints = new Transform[3];
         [SerializeField] private Transform[] packageSpawnPoints = new Transform[0];
-        [SerializeField] private WebPortObstacleEntry[] obstacles = new WebPortObstacleEntry[0];
+        [SerializeField] private Transform decorationsRoot;
         [SerializeField] private Transform goalMarker;
         [SerializeField] private Transform truck;
         [SerializeField] private Transform bus;
+
+        [Header("Collision")]
+        [Tooltip("직접 배치한 장애물 콜라이더가 속한 레이어. ResolvePlayerObstacleCollision/ResolvePackageObstacleCollision이 Physics.OverlapSphere로 이 레이어만 쿼리한다.")]
+        [SerializeField] private LayerMask obstacleLayerMask = ~0;
 
         public WebPortVisualConfig VisualConfig => visualConfig;
         public UnityEngine.Camera MainCamera => mainCamera;
@@ -64,7 +60,8 @@ namespace Hackathon.WebPort
         public Transform Truck => truck;
         public Transform Bus => bus;
         public int PackageSpawnPointCount => packageSpawnPoints?.Length ?? 0;
-        public int ObstacleCount => obstacles?.Length ?? 0;
+        public Transform DecorationsRoot => decorationsRoot;
+        public LayerMask ObstacleLayerMask => obstacleLayerMask;
 
         public Vector3 StartPosition => startPoint != null ? startPoint.position : WebPortConstants.Start;
 
@@ -90,21 +87,6 @@ namespace Hackathon.WebPort
                 (col - (WebPortConstants.SlotColumns - 1) * 0.5f) * WebPortConstants.SlotSpacing,
                 0f,
                 (row - (WebPortConstants.SlotRows - 1) * 0.5f) * WebPortConstants.SlotSpacing);
-        }
-
-        public ObstacleData GetObstacle(int index)
-        {
-            if (obstacles != null && index >= 0 && index < obstacles.Length)
-            {
-                WebPortObstacleEntry obstacle = obstacles[index];
-                if (obstacle != null && obstacle.root != null)
-                    return new ObstacleData(obstacle.root.position, Mathf.Max(obstacle.radius, 1f), obstacle.kind);
-            }
-
-            if (index >= 0 && index < WebPortConstants.Obstacles.Length)
-                return WebPortConstants.Obstacles[index];
-
-            return WebPortConstants.Obstacles[0];
         }
 
         public bool HasRequiredReferences(out string message)

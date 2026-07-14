@@ -34,7 +34,7 @@ namespace Hackathon.WebPort
             _root = layout.WorldRoot;
             _playersRoot = layout.PlayersRoot;
             _packagesRoot = layout.PackagesRoot;
-            _worldView = new WebPortWorldView(layout.StaticWorldRoot, layout.GoalMarker);
+            _worldView = new WebPortWorldView(layout.StaticWorldRoot, layout.GoalMarker, layout);
             _effectRenderer = new WebPortEffectRenderer(layout.EffectsRoot, true);
             _vehicleView = new WebPortVehicleView(layout.VehiclesRoot, layout.Truck, layout.Bus);
             _aimingView = new WebPortAimingView(layout.AimingRoot, true);
@@ -60,10 +60,16 @@ namespace Hackathon.WebPort
             SyncPlayers(players, selfId);
             SyncPackages(packages);
 
+            players.TryGetValue(selfId, out PlayerState self);
+            _worldView.UpdateDecorationFade(camera, self, players);
+
             foreach (KeyValuePair<int, WebPortPlayerView> pair in _playerViews)
             {
-                if (players.TryGetValue(pair.Key, out PlayerState player))
-                    pair.Value.Update(player, packages.Values, camera, now);
+                if (!players.TryGetValue(pair.Key, out PlayerState player))
+                    continue;
+
+                float occlusionTargetOpacity = pair.Key == selfId ? 1f : ComputeOcclusionTargetOpacity(player, players, selfId);
+                pair.Value.Update(player, packages.Values, camera, now, occlusionTargetOpacity);
             }
 
             foreach (KeyValuePair<int, WebPortPackageView> pair in _packageViews)
@@ -80,7 +86,7 @@ namespace Hackathon.WebPort
             _effectRenderer.Update(effects, now);
             _vehicleView.Update(start, goal);
 
-            if (players.TryGetValue(selfId, out PlayerState self))
+            if (self != null)
                 _aimingView.Update(self, players, packages, mouseWorld);
         }
 
@@ -92,6 +98,36 @@ namespace Hackathon.WebPort
         public void PlayBus()
         {
             _vehicleView.PlayBus();
+        }
+
+        // 오브젝트 페이드(WebPortWorldView.UpdateObstacleFade)와 동일한 근접 판정을 다른
+        // 플레이어의 몸에도 적용한다 - 웹 버전엔 없던 확장이라 요청받은 대로 별도로 추가.
+        private static float ComputeOcclusionTargetOpacity(PlayerState target, IReadOnlyDictionary<int, PlayerState> players, int selfId)
+        {
+            if (!players.TryGetValue(selfId, out PlayerState self))
+                return 1f;
+
+            float minDistance = GroundDistance(self.Position, target.RenderPosition);
+            foreach (PlayerState player in players.Values)
+            {
+                if (player.Id == target.Id || player.Id == selfId)
+                    continue;
+
+                float distance = GroundDistance(player.RenderPosition, target.RenderPosition);
+                if (distance < minDistance)
+                    minDistance = distance;
+            }
+
+            return minDistance < WebPortConstants.PlayerRadius + WebPortConstants.OcclusionFadeMargin
+                ? WebPortConstants.OcclusionFadedOpacity
+                : 1f;
+        }
+
+        private static float GroundDistance(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x;
+            float dz = a.z - b.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
         private void SyncPlayers(IReadOnlyDictionary<int, PlayerState> players, int selfId)

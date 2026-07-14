@@ -49,6 +49,7 @@ namespace Hackathon.WebPort
         private bool _initialTargetDoorOpened;
         private bool _waitingForInitialServerSupply;
         private Coroutine _serverSupplyBatchRoutine;
+        private readonly Collider[] _obstacleQueryBuffer = new Collider[16];
 
         private PlayerState Self => _players.TryGetValue(_selfId, out PlayerState player) ? player : null;
 
@@ -992,18 +993,25 @@ namespace Hackathon.WebPort
                 self.ExternalVelocity = Vector3.zero;
         }
 
+        // 직접 배치한 장애물 콜라이더(_layout.ObstacleLayerMask)를 Physics로 직접 쿼리한다 -
+        // 모든 클라이언트가 같은 빌드/씬을 쓰므로 이 로컬 판정 결과가 클라이언트마다 갈릴
+        // 걱정은 없다(브로드캐스트되는 건 판정 후의 최종 위치뿐).
         private void ResolvePlayerObstacleCollision(PlayerState player)
         {
-            for (int i = 0; i < GetObstacleCount(); i++)
+            if (_layout == null)
+                return;
+
+            int count = Physics.OverlapSphereNonAlloc(player.Position, WebPortConstants.PlayerRadius, _obstacleQueryBuffer, _layout.ObstacleLayerMask, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < count; i++)
             {
-                ObstacleData obstacle = GetObstacle(i);
-                Vector3 delta = player.Position - obstacle.Position;
+                Collider obstacle = _obstacleQueryBuffer[i];
+                Vector3 closest = Physics.ClosestPoint(player.Position, obstacle, obstacle.transform.position, obstacle.transform.rotation);
+                Vector3 delta = player.Position - closest;
                 delta.y = 0f;
                 float distance = delta.magnitude;
-                float minimum = WebPortConstants.PlayerRadius + obstacle.Radius;
-                if (distance < minimum && distance > 0.001f)
+                if (distance < WebPortConstants.PlayerRadius && distance > 0.001f)
                 {
-                    player.Position += delta / distance * (minimum - distance);
+                    player.Position += delta / distance * (WebPortConstants.PlayerRadius - distance);
                     player.Position = WebPortConstants.ClampToCross(player.Position);
                 }
             }
@@ -1054,6 +1062,7 @@ namespace Hackathon.WebPort
             }
 
             package.Position += package.Velocity * dt;
+            bool justLanded = false;
 
             if (package.Position.y > 0f || Mathf.Abs(package.Velocity.y) > 0.001f)
             {
@@ -1063,6 +1072,7 @@ namespace Hackathon.WebPort
                     package.Position = new Vector3(package.Position.x, 0f, package.Position.z);
                     package.Velocity = new Vector3(package.Velocity.x, 0f, package.Velocity.z);
                     package.PickupLocked = false;
+                    justLanded = true;
                 }
             }
             else
@@ -1079,7 +1089,7 @@ namespace Hackathon.WebPort
             TickPackageRotation(package, dt);
             CheckDelivery(self, package, now);
             CheckPackageHitPlayers(package);
-            TickBomb(package, now);
+            TickBomb(package, now, justLanded);
         }
 
         private static void SimulateHeldPackage(PlayerState holder, PackageState package, float targetY, float dt)
@@ -1267,33 +1277,28 @@ namespace Hackathon.WebPort
 
         private void ResolvePackageObstacleCollision(PackageState package)
         {
-            for (int i = 0; i < GetObstacleCount(); i++)
+            if (_layout == null)
+                return;
+
+            float packageRadius = GetPackageRadius(package);
+            int count = Physics.OverlapSphereNonAlloc(package.Position, packageRadius, _obstacleQueryBuffer, _layout.ObstacleLayerMask, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < count; i++)
             {
-                ObstacleData obstacle = GetObstacle(i);
-                Vector3 delta = package.Position - obstacle.Position;
+                Collider obstacle = _obstacleQueryBuffer[i];
+                Vector3 closest = Physics.ClosestPoint(package.Position, obstacle, obstacle.transform.position, obstacle.transform.rotation);
+                Vector3 delta = package.Position - closest;
                 delta.y = 0f;
                 float distance = delta.magnitude;
-                float minimum = obstacle.Radius + GetPackageRadius(package);
-                if (distance < minimum && distance > 0.001f)
+                if (distance < packageRadius && distance > 0.001f)
                 {
                     Vector3 normal = delta / distance;
-                    package.Position = obstacle.Position + normal * minimum + Vector3.up * package.Position.y;
+                    package.Position += normal * (packageRadius - distance);
                     float vn = Vector3.Dot(package.Velocity, normal);
                     float impactSpeed = Mathf.Abs(vn);
                     package.Velocity = (package.Velocity - 2f * vn * normal) * WebPortConstants.PackageCollisionBounceRetain;
                     AddSpinFromImpact(package, normal, impactSpeed);
                 }
             }
-        }
-
-        private int GetObstacleCount()
-        {
-            return _layout != null && _layout.ObstacleCount > 0 ? _layout.ObstacleCount : WebPortConstants.Obstacles.Length;
-        }
-
-        private ObstacleData GetObstacle(int index)
-        {
-            return _layout != null && _layout.ObstacleCount > 0 ? _layout.GetObstacle(index) : WebPortConstants.Obstacles[index];
         }
 
         private int ResolveGoalIndex(Vector3 goal)
@@ -1410,13 +1415,12 @@ namespace Hackathon.WebPort
             }
         }
 
-        private void TickBomb(PackageState package, float now)
+        // 시간이 아니라 "던져진 뒤 착지"가 트리거다 - 슬롯에 막 나온 채로 아직 아무도 안 건드린
+        // 폭탄은 owner가 있어도(supply 낙하 동기화를 위해 호스트가 항상 소유) 절대 안 터진다.
+        // Armed는 오직 ThrowHeldBoxes에서 실제로 던질 때만 true가 된다.
+        private void TickBomb(PackageState package, float now, bool justLanded)
         {
-            if (package.Kind != PackageKind.Bomb)
-                return;
-
-            package.Timer -= Time.deltaTime;
-            if (package.Timer > 0f)
+            if (package.Kind != PackageKind.Bomb || !package.Armed || !justLanded)
                 return;
 
             ApplyBlast(package.Position, now);
@@ -1605,6 +1609,8 @@ namespace Hackathon.WebPort
                 PackageState package = heldPackages[i];
                 package.HeldBy = null;
                 package.OwnerId = self.Id;
+                if (package.Kind == PackageKind.Bomb)
+                    package.Armed = true;
                 float packagePower = package.Kind == PackageKind.Gravity ? power * 0.5f : power;
                 float spread = (i - (count - 1) * 0.5f) * 0.15f;
                 package.Velocity = new Vector3(
@@ -1917,7 +1923,7 @@ namespace Hackathon.WebPort
         {
             PlayerState self = Self;
             Vector3 goalDelta = _goal - self.Position;
-            float bearing = Mathf.Atan2(goalDelta.x, -goalDelta.z) * Mathf.Rad2Deg;
+            float bearing = ComputeScreenBearing(goalDelta);
             int goalDistance = Mathf.RoundToInt(new Vector2(goalDelta.x, goalDelta.z).magnitude);
             float remain = _sessionRemainMs / 1000f;
             List<ScoreEntry> scores = _players.Values
@@ -1936,6 +1942,29 @@ namespace Hackathon.WebPort
                 self.Instability,
                 remain,
                 Time.time < _truckBannerUntil);
+        }
+
+        // 화면상 "위에서 시계방향" 각도를 실제 카메라 축(GetCameraRelativeMove와 동일한 방식)으로
+        // 계산한다. 이전엔 월드 좌표(atan2(dx,-dz))로 고정해서 카메라의 실제 right가 +X라고
+        // 가정했는데, 지금 카메라(고정 오프셋 (0,140,420)+LookAt) 기준 실제 right는 -X라서
+        // 화살표가 좌우로 뒤집혀 보였다 - 카메라 벡터를 직접 내적해서 뒤집힐 걱정 없앰.
+        private float ComputeScreenBearing(Vector3 worldDelta)
+        {
+            worldDelta.y = 0f;
+            if (_camera == null || worldDelta.sqrMagnitude < 0.0001f)
+                return 0f;
+
+            Vector3 screenRight = _camera.transform.right;
+            screenRight.y = 0f;
+            screenRight = screenRight.sqrMagnitude > 0.0001f ? screenRight.normalized : Vector3.right;
+
+            Vector3 screenUp = _camera.transform.forward;
+            screenUp.y = 0f;
+            screenUp = screenUp.sqrMagnitude > 0.0001f ? screenUp.normalized : Vector3.back;
+
+            float x = Vector3.Dot(worldDelta, screenRight);
+            float y = Vector3.Dot(worldDelta, screenUp);
+            return Mathf.Atan2(x, y) * Mathf.Rad2Deg;
         }
 
         // Networked sessions end when the server broadcasts 'gameEnded' (see OnGameEnded via
