@@ -124,14 +124,19 @@ Visual replacement workflow:
 - Each replacement prefab has a matching transform override in the config
   (`localPosition`, `localEulerAngles`, `localScale`). Use these fields to resize
   or align imported package, obstacle, truck, and bus prefabs without editing code.
+  Package prefabs explicitly copy their authored root local position, rotation,
+  and scale when instantiated. Package transform overrides are applied on top of
+  that original prefab transform, so a scale override multiplies the prefab's
+  existing scale instead of replacing it.
 - Package gameplay collision can follow replacement prefab size. When
   `packageCollisionMatchesPrefabBounds` is enabled, package collision is measured
   from the replacement prefab after transform overrides. If the prefab has
   Collider components, those Collider bounds are used and Renderer/SpriteRenderer
   bounds are ignored. If it has no Collider, Renderer/SpriteRenderer bounds are
-  used. If neither exists, `fallbackPackageCollisionSize` is used. Runtime
-  Collider components are still removed from visuals so Unity physics does not
-  fight the WebPort gameplay solver.
+  used. If neither exists, `fallbackPackageCollisionSize` is used. Authored
+  runtime Colliders are kept as triggers. When none exist, a trigger BoxCollider
+  is generated from the combined Renderer/SpriteRenderer bounds so Unity physics
+  does not compete with the WebPort gameplay solver.
 - Package visual ground offset also uses the measured prefab bounds, so Sprite or
   mesh prefabs keep their authored size instead of being placed with the old
   fixed 12-unit box offset.

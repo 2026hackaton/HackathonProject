@@ -87,7 +87,7 @@ MonoBehaviour:
   spriteFrameCount: 10
   spriteFrameSeconds: 0.13
   diagonalFacingDeadZone: 0.18
-  normalPackagePrefab: {fileID: 0}
+  normalPackagePrefab: {fileID: 7075655981374972004, guid: 1dad9dc0c7f8a8f409f5255e60e59593, type: 3}
   highPackagePrefab: {fileID: 0}
   bombPackagePrefab: {fileID: 0}
   gravityPackagePrefab: {fileID: 0}
@@ -132,8 +132,12 @@ MonoBehaviour:
     localPosition: {x: 0, y: 0, z: 0}
     localEulerAngles: {x: 0, y: 0, z: 0}
     localScale: {x: 1, y: 1, z: 1}
+  packageCollisionMatchesPrefabBounds: 1
+  fallbackPackageCollisionSize: {x: 24, y: 24, z: 24}
+  packageCollisionPadding: 0
   groundBaseMaterial: {fileID: 0}
   crossGroundMaterial: {fileID: 0}
+  boundaryWallMaterial: {fileID: 0}
   startMarkerMaterial: {fileID: 0}
   goalFillMaterial: {fileID: 0}
   goalRingMaterial: {fileID: 0}
@@ -146,6 +150,11 @@ MonoBehaviour:
   rockMaterial: {fileID: 0}
   truckMaterial: {fileID: 0}
   busMaterial: {fileID: 0}
+  createBoundaryWalls: 1
+  boundaryWallHeight: 90
+  boundaryWallThickness: 28
+  boundaryWallPadding: 12
+  skyboxMaterial: {fileID: 0}
   pageBackground: {r: 0.8745, g: 0.902, b: 0.9137, a: 1}
   groundBase: {r: 0.7255, g: 0.7765, b: 0.7882, a: 1}
   startBlue: {r: 0.2039, g: 0.5961, b: 0.8588, a: 1}
@@ -163,6 +172,7 @@ MonoBehaviour:
   wallColor: {r: 0.7529, g: 0.4745, b: 0.2471, a: 1}
   rockColor: {r: 0.5529, g: 0.4314, b: 0.3882, a: 1}
   truckColor: {r: 0.2039, g: 0.2863, b: 0.3686, a: 1}
+  boundaryWallColor: {r: 0.4549, g: 0.502, b: 0.5176, a: 1}
   uiPrefab: {fileID: 0}
   uiFont: {fileID: 0}
   screenBackgroundSprite: {fileID: 0}
