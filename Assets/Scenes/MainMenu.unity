@@ -651,6 +651,15 @@ MonoBehaviour:
   backgroundMusic: {fileID: 0}
   buttonHoverSound: {fileID: 0}
   buttonClickSound: {fileID: 0}
+  showTutorialBeforeStart: 1
+  tutorialFirstImageSprite: {fileID: 1630034670, guid: bf2368446bdc84b4585822f34418410b, type: 3}
+  tutorialSecondImageSprite: {fileID: -1410749390, guid: a848a465963a8da40b28f47c174cff52, type: 3}
+  tutorialBackdropColor: {r: 0, g: 0, b: 0, a: 0.72}
+  tutorialFallbackImageColor: {r: 0.08, g: 0.1, b: 0.11, a: 0.94}
+  tutorialImageSize: {x: 840, y: 520}
+  tutorialFadeInSeconds: 0.18
+  tutorialPageFadeSeconds: 0.12
+  tutorialFadeOutSeconds: 0.18
   useGeneratedFallbackIfMissingStartButton: 0
   generateRoomOptionsIfMissing: 1
   background: {fileID: 451418440}
