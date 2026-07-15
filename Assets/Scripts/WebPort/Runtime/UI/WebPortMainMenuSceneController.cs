@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
@@ -44,6 +46,17 @@ namespace Hackathon.WebPort
         [SerializeField] private AudioClip buttonHoverSound;
         [SerializeField] private AudioClip buttonClickSound;
 
+        [Header("Tutorial Overlay")]
+        [SerializeField] private bool showTutorialBeforeStart = true;
+        [SerializeField] private Sprite tutorialFirstImageSprite;
+        [SerializeField] private Sprite tutorialSecondImageSprite;
+        [SerializeField] private Color tutorialBackdropColor = new(0f, 0f, 0f, 0.72f);
+        [SerializeField] private Color tutorialFallbackImageColor = new(0.08f, 0.10f, 0.11f, 0.94f);
+        [SerializeField] private Vector2 tutorialImageSize = new(840f, 520f);
+        [SerializeField, Min(0f)] private float tutorialFadeInSeconds = 0.18f;
+        [SerializeField, Min(0f)] private float tutorialPageFadeSeconds = 0.12f;
+        [SerializeField, Min(0f)] private float tutorialFadeOutSeconds = 0.18f;
+
         [Header("Custom Main Screen")]
         [SerializeField] private bool useGeneratedFallbackIfMissingStartButton = true;
         [SerializeField] private bool generateRoomOptionsIfMissing = true;
@@ -70,6 +83,14 @@ namespace Hackathon.WebPort
         private WebPortMenuAudioController _menuAudio;
         private InputField _roomCodeInput;
         private Text _errorText;
+        private GameObject _tutorialOverlay;
+        private CanvasGroup _tutorialCanvasGroup;
+        private Image _tutorialImage;
+        private Action _pendingTutorialAction;
+        private int _tutorialPageIndex;
+        private bool _tutorialAccepted;
+        private bool _tutorialTransitioning;
+        private Coroutine _tutorialCoroutine;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void InstallForMainMenuScene()
@@ -313,9 +334,14 @@ namespace Hackathon.WebPort
 
         public void OnGameStartClicked()
         {
+            RunAfterTutorial(ContinueGameStartClicked);
+        }
+
+        private void ContinueGameStartClicked()
+        {
             if (!enableMainMenuRoomRequests)
             {
-                SceneManager.LoadScene(gameplaySceneName);
+                LoadGameplayScene();
                 return;
             }
 
@@ -335,9 +361,14 @@ namespace Hackathon.WebPort
 
         public void OnCreateRoomClicked()
         {
+            RunAfterTutorial(ContinueCreateRoomClicked);
+        }
+
+        private void ContinueCreateRoomClicked()
+        {
             if (!enableMainMenuRoomRequests)
             {
-                SceneManager.LoadScene(gameplaySceneName);
+                LoadGameplayScene();
                 return;
             }
 
@@ -346,9 +377,14 @@ namespace Hackathon.WebPort
 
         public void OnJoinRoomClicked()
         {
+            RunAfterTutorial(ContinueJoinRoomClicked);
+        }
+
+        private void ContinueJoinRoomClicked()
+        {
             if (!enableMainMenuRoomRequests)
             {
-                SceneManager.LoadScene(gameplaySceneName);
+                LoadGameplayScene();
                 return;
             }
 
@@ -361,6 +397,248 @@ namespace Hackathon.WebPort
             }
 
             WebPortMenuSceneRequest.LoadAndJoinRoom(gameplaySceneName, code);
+        }
+
+        private void RunAfterTutorial(Action action)
+        {
+            if (action == null)
+                return;
+
+            if (!showTutorialBeforeStart || _tutorialAccepted)
+            {
+                action.Invoke();
+                return;
+            }
+
+            ShowTutorialOverlay(action);
+        }
+
+        private void ShowTutorialOverlay(Action continueAction)
+        {
+            _pendingTutorialAction = continueAction;
+            _tutorialPageIndex = 0;
+
+            if (_tutorialOverlay == null)
+                _tutorialOverlay = CreateTutorialOverlay();
+
+            ApplyTutorialPage();
+            _tutorialOverlay.SetActive(true);
+            _tutorialOverlay.transform.SetAsLastSibling();
+            PlayTutorialCoroutine(FadeTutorialIn());
+        }
+
+        private GameObject CreateTutorialOverlay()
+        {
+            Transform parent = ResolveTutorialOverlayParent();
+
+            GameObject root = new("Tutorial Overlay");
+            root.transform.SetParent(parent, false);
+            RectTransform rootRect = root.AddComponent<RectTransform>();
+            Stretch(rootRect);
+
+            Image backdrop = root.AddComponent<Image>();
+            backdrop.color = tutorialBackdropColor;
+            backdrop.raycastTarget = true;
+
+            _tutorialCanvasGroup = root.AddComponent<CanvasGroup>();
+            _tutorialCanvasGroup.alpha = 0f;
+            _tutorialCanvasGroup.interactable = true;
+            _tutorialCanvasGroup.blocksRaycasts = true;
+
+            TutorialOverlayClickCatcher clickCatcher = root.AddComponent<TutorialOverlayClickCatcher>();
+            clickCatcher.Initialize(AdvanceTutorialOverlay);
+
+            GameObject imageObject = new("Tutorial Image");
+            imageObject.transform.SetParent(root.transform, false);
+            RectTransform imageRect = imageObject.AddComponent<RectTransform>();
+            imageRect.anchorMin = imageRect.anchorMax = imageRect.pivot = new Vector2(0.5f, 0.5f);
+            imageRect.sizeDelta = tutorialImageSize;
+            imageRect.anchoredPosition = Vector2.zero;
+            imageRect.anchoredPosition3D = Vector3.zero;
+            imageRect.localPosition = Vector3.zero;
+            imageRect.localScale = Vector3.one;
+
+            _tutorialImage = imageObject.AddComponent<Image>();
+            _tutorialImage.raycastTarget = false;
+
+            return root;
+        }
+
+        private void ApplyTutorialPage()
+        {
+            if (_tutorialImage == null)
+                return;
+
+            Sprite pageSprite = GetTutorialPageSprite(_tutorialPageIndex);
+            _tutorialImage.sprite = pageSprite;
+            _tutorialImage.color = pageSprite != null ? Color.white : tutorialFallbackImageColor;
+            _tutorialImage.preserveAspect = pageSprite != null;
+        }
+
+        private IEnumerator FadeTutorialIn()
+        {
+            _tutorialTransitioning = true;
+            SetTutorialAlpha(0f);
+            yield return FadeTutorialCanvas(0f, 1f, tutorialFadeInSeconds);
+            _tutorialTransitioning = false;
+        }
+
+        private IEnumerator FadeTutorialPage(int nextPageIndex)
+        {
+            _tutorialTransitioning = true;
+            yield return FadeTutorialImage(1f, 0f, tutorialPageFadeSeconds);
+            _tutorialPageIndex = nextPageIndex;
+            ApplyTutorialPage();
+            yield return FadeTutorialImage(0f, 1f, tutorialPageFadeSeconds);
+            _tutorialTransitioning = false;
+        }
+
+        private IEnumerator FadeTutorialOutAndContinue()
+        {
+            _tutorialTransitioning = true;
+            yield return FadeTutorialCanvas(1f, 0f, tutorialFadeOutSeconds);
+            _tutorialTransitioning = false;
+            CompleteTutorialOverlay();
+        }
+
+        private IEnumerator FadeTutorialCanvas(float from, float to, float seconds)
+        {
+            if (_tutorialCanvasGroup == null || seconds <= 0f)
+            {
+                SetTutorialAlpha(to);
+                yield break;
+            }
+
+            float elapsed = 0f;
+            while (elapsed < seconds)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / seconds);
+                SetTutorialAlpha(Mathf.Lerp(from, to, Smooth01(t)));
+                yield return null;
+            }
+
+            SetTutorialAlpha(to);
+        }
+
+        private IEnumerator FadeTutorialImage(float from, float to, float seconds)
+        {
+            if (_tutorialImage == null || seconds <= 0f)
+            {
+                SetTutorialImageAlpha(to);
+                yield break;
+            }
+
+            float elapsed = 0f;
+            while (elapsed < seconds)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / seconds);
+                SetTutorialImageAlpha(Mathf.Lerp(from, to, Smooth01(t)));
+                yield return null;
+            }
+
+            SetTutorialImageAlpha(to);
+        }
+
+        private void SetTutorialAlpha(float alpha)
+        {
+            if (_tutorialCanvasGroup != null)
+                _tutorialCanvasGroup.alpha = alpha;
+        }
+
+        private void SetTutorialImageAlpha(float alpha)
+        {
+            if (_tutorialImage == null)
+                return;
+
+            Color color = _tutorialImage.color;
+            color.a = alpha;
+            _tutorialImage.color = color;
+        }
+
+        private void PlayTutorialCoroutine(IEnumerator routine)
+        {
+            if (_tutorialCoroutine != null)
+                StopCoroutine(_tutorialCoroutine);
+
+            _tutorialCoroutine = StartCoroutine(routine);
+        }
+
+        private static float Smooth01(float value)
+        {
+            return value * value * (3f - 2f * value);
+        }
+
+        private Sprite GetTutorialPageSprite(int index)
+        {
+            if (index == 0 && tutorialFirstImageSprite != null)
+                return tutorialFirstImageSprite;
+            if (index == 0 && tutorialSecondImageSprite != null)
+                return tutorialSecondImageSprite;
+            if (index == 1 && tutorialFirstImageSprite != null && tutorialSecondImageSprite != null)
+                return tutorialSecondImageSprite;
+            return null;
+        }
+
+        private int GetTutorialPageCount()
+        {
+            return 2;
+        }
+
+        private Transform ResolveTutorialOverlayParent()
+        {
+            Canvas canvas = null;
+
+            if (_gameStartButton != null)
+                canvas = _gameStartButton.GetComponentInParent<Canvas>(true);
+            if (canvas == null && background != null)
+                canvas = background.GetComponentInParent<Canvas>(true);
+            if (canvas == null && logo != null)
+                canvas = logo.GetComponentInParent<Canvas>(true);
+            if (canvas == null)
+                canvas = FindAnyObjectByType<Canvas>(FindObjectsInactive.Include);
+
+            if (canvas != null)
+            {
+                GraphicRaycaster raycaster = canvas.GetComponent<GraphicRaycaster>();
+                if (raycaster == null)
+                    canvas.gameObject.AddComponent<GraphicRaycaster>();
+
+                return canvas.transform;
+            }
+
+            return transform;
+        }
+
+        private void AdvanceTutorialOverlay()
+        {
+            if (_tutorialTransitioning)
+                return;
+
+            int lastPageIndex = GetTutorialPageCount() - 1;
+            if (_tutorialPageIndex < lastPageIndex)
+            {
+                PlayTutorialCoroutine(FadeTutorialPage(_tutorialPageIndex + 1));
+                return;
+            }
+
+            PlayTutorialCoroutine(FadeTutorialOutAndContinue());
+        }
+
+        private void CompleteTutorialOverlay()
+        {
+            _tutorialAccepted = true;
+            SetActive(_tutorialOverlay, false);
+
+            Action action = _pendingTutorialAction;
+            _pendingTutorialAction = null;
+            action?.Invoke();
+        }
+
+        private void LoadGameplayScene()
+        {
+            SceneManager.LoadScene(gameplaySceneName);
         }
 
         public void ShowMain()
@@ -566,6 +844,53 @@ namespace Hackathon.WebPort
                     else
                         DestroyImmediate(skin);
                 }
+            }
+        }
+
+        private sealed class TutorialOverlayClickCatcher : MonoBehaviour, IPointerDownHandler
+        {
+            private Action _onClicked;
+            private int _enabledFrame;
+            private int _lastClickFrame = -1;
+
+            public void Initialize(Action onClicked)
+            {
+                _onClicked = onClicked;
+            }
+
+            private void OnEnable()
+            {
+                _enabledFrame = Time.frameCount;
+            }
+
+            private void Update()
+            {
+#if ENABLE_LEGACY_INPUT_MANAGER
+                if (Time.frameCount <= _enabledFrame)
+                    return;
+
+                bool mouseClicked = Input.GetMouseButtonDown(0);
+                bool touchStarted = Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began;
+                if (mouseClicked || touchStarted)
+                    InvokeClick();
+#endif
+            }
+
+            public void OnPointerDown(PointerEventData eventData)
+            {
+                InvokeClick();
+            }
+
+            private void InvokeClick()
+            {
+                if (Time.frameCount <= _enabledFrame)
+                    return;
+
+                if (_lastClickFrame == Time.frameCount)
+                    return;
+
+                _lastClickFrame = Time.frameCount;
+                _onClicked?.Invoke();
             }
         }
     }
