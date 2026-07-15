@@ -258,7 +258,7 @@ namespace Hackathon.WebPort
             return mesh;
         }
 
-        private static void MakeTransparent(Material material)
+        internal static void MakeTransparent(Material material)
         {
             material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             material.SetOverrideTag("RenderType", "Transparent");

@@ -29,7 +29,7 @@ namespace Hackathon.WebPort
         private Text _resultsText;
         private Button _restartButton;
         private Text _scoreText;
-        private Text _goalArrowText;
+        private RectTransform _goalArrow;
         private Text _goalDistanceText;
         private Text _timerText;
         private Image _timerPanelImage;
@@ -179,7 +179,7 @@ namespace Hackathon.WebPort
             }
 
             _scoreText.text = "순위 (배달 개수)\n" + string.Join("\n", scores.Select((s, i) => $"{i + 1}. {(s.PlayerId == selfId ? "나" : $"#{s.PlayerId}")}  {s.Deliveries}"));
-            _goalArrowText.rectTransform.localRotation = Quaternion.Euler(0f, 0f, -bearingDegrees);
+            _goalArrow.localRotation = Quaternion.Euler(0f, 0f, -bearingDegrees);
             _goalDistanceText.text = $"{goalDistance}m";
 
             int totalSeconds = Mathf.Max(Mathf.FloorToInt(remainSeconds), 0);
@@ -272,9 +272,15 @@ namespace Hackathon.WebPort
             GameObject directionPanel = CreateHudPanel("Direction", new Vector2(0f, -12f), new Vector2(156f, 98f), TextAnchor.UpperCenter);
             RectTransform directionRect = directionPanel.GetComponent<RectTransform>();
             directionRect.anchorMin = directionRect.anchorMax = directionRect.pivot = new Vector2(0.5f, 1f);
-            AddText(directionPanel.transform, "배달 지점 방향", 12, FontStyle.Normal, new Vector2(0f, -16f), new Vector2(132f, 20f), Theme.uiMutedText);
-            _goalArrowText = AddText(directionPanel.transform, "▲", 28, FontStyle.Bold, new Vector2(0f, -47f), new Vector2(60f, 34f), Theme.uiText);
-            _goalDistanceText = AddText(directionPanel.transform, "0m", 12, FontStyle.Normal, new Vector2(0f, -78f), new Vector2(132f, 18f), Theme.uiMutedText);
+            // AddText가 만드는 RectTransform은 앵커를 (0,0)(패널 좌하단)으로 남겨두는데, 이 패널은
+            // 자기 자신이 (0.5,1)(상단 중앙) 기준이라 자식도 같은 기준으로 앵커를 맞춰야 offset이
+            // 의도한 대로(패널 상단에서부터) 적용된다 - 안 맞추면 오프셋이 큰 자식일수록 패널
+            // 바깥 아래로 밀려나 보인다(거리 텍스트가 그렇게 사라져 보이던 원인).
+            Text title = AddText(directionPanel.transform, "배달 지점 방향", 12, FontStyle.Normal, new Vector2(0f, -16f), new Vector2(132f, 20f), Theme.uiMutedText);
+            AnchorTopCenter(title.rectTransform);
+            _goalArrow = CreateGoalArrow(directionPanel.transform, new Vector2(0f, -55f));
+            _goalDistanceText = AddText(directionPanel.transform, "0m", 12, FontStyle.Normal, new Vector2(0f, -80f), new Vector2(132f, 18f), Theme.uiMutedText);
+            AnchorTopCenter(_goalDistanceText.rectTransform);
 
             GameObject timerPanel = CreateHudPanel("Timer", new Vector2(-12f, -12f), new Vector2(112f, 50f), TextAnchor.UpperRight);
             _timerPanelImage = timerPanel.GetComponent<Image>();
@@ -448,6 +454,43 @@ namespace Hackathon.WebPort
             placeholderText.alignment = TextAnchor.MiddleCenter;
             input.placeholder = placeholderText;
             return input;
+        }
+
+        private static void AnchorTopCenter(RectTransform rect)
+        {
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 1f);
+        }
+
+        // 삼각형 글리프 하나로는 회전해도 방향이 잘 안 보여서, 꼬리(몸통) + 마름모 머리로 이루어진
+        // 화살표 모양을 UI 사각형만으로 직접 그린다(스프라이트 에셋 불필요). 반환하는 RectTransform을
+        // 회전시키면 전체 화살표가 같이 돈다 - 0도일 때 위를 가리키도록 만들어졌다.
+        private RectTransform CreateGoalArrow(Transform parent, Vector2 position)
+        {
+            GameObject root = new("Goal Arrow");
+            root.transform.SetParent(parent, false);
+            RectTransform rootRect = root.AddComponent<RectTransform>();
+            rootRect.sizeDelta = new Vector2(40f, 40f);
+            AnchorTopCenter(rootRect);
+            rootRect.anchoredPosition = position;
+
+            CreateArrowPart(root.transform, "Tail", new Vector2(6f, 26f), new Vector2(0f, -13f), 0f);
+            CreateArrowPart(root.transform, "Head", new Vector2(16f, 16f), new Vector2(0f, 4f), 45f);
+
+            return rootRect;
+        }
+
+        private void CreateArrowPart(Transform parent, string name, Vector2 size, Vector2 position, float rotationZ)
+        {
+            GameObject obj = new(name);
+            obj.transform.SetParent(parent, false);
+            RectTransform rect = obj.AddComponent<RectTransform>();
+            rect.sizeDelta = size;
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position;
+            rect.localRotation = Quaternion.Euler(0f, 0f, rotationZ);
+
+            Image image = obj.AddComponent<Image>();
+            image.color = Theme.uiText;
         }
 
         private Text AddText(Transform parent, string value, int size, FontStyle style, Vector2 position, Vector2 rectSize, Color color)

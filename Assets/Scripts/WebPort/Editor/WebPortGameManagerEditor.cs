@@ -75,7 +75,7 @@ namespace Hackathon.WebPort.Editor
             Transform anchors = CreateChild(root.transform, "Gameplay Anchors");
             Transform spawnRoot = CreateChild(anchors, "Package Spawn Points");
             Transform goalsRoot = CreateChild(anchors, "Goal Points");
-            Transform obstacleRoot = CreateChild(anchors, "Obstacle Anchors");
+            CreateChild(anchors, "Obstacle Anchors");
 
             UnityEngine.Camera camera = EnsureCamera(services);
             WebPortCameraRig cameraRig = camera.GetComponent<WebPortCameraRig>();
@@ -87,7 +87,6 @@ namespace Hackathon.WebPort.Editor
             Transform startPoint = CreateAnchor(anchors, "Start Point", WebPortConstants.Start);
             Transform[] goalPoints = CreateGoalPoints(goalsRoot);
             Transform[] spawnPoints = CreatePackageSpawnPoints(spawnRoot, startPoint.position);
-            WebPortObstacleEntry[] obstacles = CreateObstacles(staticWorld, obstacleRoot);
             Transform goalMarker = CreateGoalMarker(staticWorld, goalPoints[0].position);
             PackageSupplySequence supplySequence = CreateSupplySequence(staticWorld, config, notification);
             DeliveryDoorController deliveryDoorController = CreateDeliveryDoors(staticWorld, goalPoints);
@@ -118,7 +117,6 @@ namespace Hackathon.WebPort.Editor
             Set(layoutObject, "startPoint", startPoint);
             SetArray(layoutObject, "goalPoints", goalPoints);
             SetArray(layoutObject, "packageSpawnPoints", spawnPoints);
-            SetObstacleArray(layoutObject, obstacles);
             Set(layoutObject, "goalMarker", goalMarker);
             Set(layoutObject, "truck", truck);
             Set(layoutObject, "bus", bus);
@@ -469,60 +467,6 @@ namespace Hackathon.WebPort.Editor
             return points;
         }
 
-        private static WebPortObstacleEntry[] CreateObstacles(Transform staticParent, Transform anchorParent)
-        {
-            WebPortObstacleEntry[] entries = new WebPortObstacleEntry[WebPortConstants.Obstacles.Length];
-            for (int i = 0; i < WebPortConstants.Obstacles.Length; i++)
-            {
-                ObstacleData data = WebPortConstants.Obstacles[i];
-                Transform anchor = CreateAnchor(anchorParent, $"Obstacle {i} {data.Kind}", data.Position);
-                CreateObstacleVisual(staticParent, anchor, data.Kind, data.Radius, i);
-                entries[i] = new WebPortObstacleEntry
-                {
-                    root = anchor,
-                    kind = data.Kind,
-                    radius = data.Radius,
-                };
-            }
-
-            return entries;
-        }
-
-        private static void CreateObstacleVisual(Transform parent, Transform anchor, ObstacleKind kind, float radius, int index)
-        {
-            GameObject root = CreateChild(parent, $"Obstacle Visual {index} {kind}").gameObject;
-            root.transform.position = anchor.position;
-
-            GameObject prefab = WebPortVisuals.Config.GetObstaclePrefab(kind);
-            if (prefab != null)
-            {
-                GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, root.transform);
-                instance.name = "Visual";
-                WebPortVisuals.Config.GetObstacleTransform(kind).ApplyTo(instance.transform);
-                RemoveColliders(instance);
-                return;
-            }
-
-            GameObject visual = kind switch
-            {
-                ObstacleKind.Rock => GameObject.CreatePrimitive(PrimitiveType.Sphere),
-                ObstacleKind.Wall => GameObject.CreatePrimitive(PrimitiveType.Cube),
-                _ => GameObject.CreatePrimitive(PrimitiveType.Cylinder),
-            };
-
-            visual.name = "Visual";
-            visual.transform.SetParent(root.transform, false);
-            if (kind == ObstacleKind.Wall)
-                visual.transform.localScale = new Vector3(radius * 2.1f, radius * 1.1f, radius * 0.9f);
-            else if (kind == ObstacleKind.Rock)
-                visual.transform.localScale = Vector3.one * radius * 1.55f;
-            else
-                visual.transform.localScale = new Vector3(radius * 2f, radius * 0.9f, radius * 2.2f);
-            visual.transform.localPosition = Vector3.up * radius * 0.6f;
-            visual.GetComponent<MeshRenderer>().sharedMaterial = WebPortVisuals.ObstacleMaterial(kind);
-            Object.DestroyImmediate(visual.GetComponent<Collider>());
-        }
-
         private static Transform CreateVehicle(Transform parent, string name, GameObject prefab, WebPortVisualConfig.PrefabTransform prefabTransform, Vector3 size, Material fallbackMaterial, bool preservePrefabTransform = false)
         {
             Transform root = CreateChild(parent, name);
@@ -680,19 +624,6 @@ namespace Hackathon.WebPort.Editor
             property.arraySize = values.Length;
             for (int i = 0; i < values.Length; i++)
                 property.GetArrayElementAtIndex(i).objectReferenceValue = values[i];
-        }
-
-        private static void SetObstacleArray(SerializedObject serializedObject, WebPortObstacleEntry[] values)
-        {
-            SerializedProperty property = serializedObject.FindProperty("obstacles");
-            property.arraySize = values.Length;
-            for (int i = 0; i < values.Length; i++)
-            {
-                SerializedProperty element = property.GetArrayElementAtIndex(i);
-                element.FindPropertyRelative("root").objectReferenceValue = values[i].root;
-                element.FindPropertyRelative("kind").enumValueIndex = (int)values[i].kind;
-                element.FindPropertyRelative("radius").floatValue = values[i].radius;
-            }
         }
 
         private static void SetDeliveryDoorEntries(SerializedObject serializedObject, DeliveryDoorController.DeliveryDoorEntry[] values)

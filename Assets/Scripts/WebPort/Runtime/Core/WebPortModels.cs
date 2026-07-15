@@ -114,6 +114,7 @@ namespace Hackathon.WebPort
         public float Timer;
         public bool Delivered;
         public bool PickupLocked;
+        public bool Armed; // 폭탄: 누군가 실제로 던져야 true가 되고, 그 뒤 착지하는 순간 터진다.
 
         public PackageState(int id, PackageKind kind, Vector3 position)
         {

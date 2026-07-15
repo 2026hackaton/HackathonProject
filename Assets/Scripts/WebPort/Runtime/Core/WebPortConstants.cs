@@ -81,6 +81,13 @@ namespace Hackathon.WebPort
         public const float PackageCarryLiftSpeed = 1400f;
         public const float PackageCarryLiftAcceleration = 16000f;
 
+        // 오브젝트/다른 플레이어가 카메라와 나 사이를 가릴 때 반투명하게 만드는 연출(웹 버전
+        // Obstacle.jsx의 FADE_MARGIN/FADED_OPACITY와 동일한 값) - 실제 레이캐스트가 아니라
+        // "반경+마진 안에 누가 있으면 페이드"라는 단순한 근접 판정.
+        public const float OcclusionFadeMargin = 90f;
+        public const float OcclusionFadedOpacity = 0.1f;
+        public const float OcclusionFadeLerpRate = 0.15f;
+
         public const int SlotColumns = 3;
         public const int SlotRows = 3;
         public const float SlotSpacing = 30f;

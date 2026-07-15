@@ -22,6 +22,7 @@ namespace Hackathon.WebPort
         private bool _hasPreviousPosition;
         private bool _usingSideFacing;
         private float _horizontalSign = 1f;
+        private float _occlusionOpacity = 1f;
 
         public Transform Transform => _root;
 
@@ -66,7 +67,7 @@ namespace Hackathon.WebPort
                 Object.Destroy(_root.gameObject);
         }
 
-        public void Update(PlayerState player, IEnumerable<PackageState> packages, UnityEngine.Camera camera, float now)
+        public void Update(PlayerState player, IEnumerable<PackageState> packages, UnityEngine.Camera camera, float now, float occlusionTargetOpacity = 1f)
         {
             Vector3 current = player.RenderPosition;
             _root.position = new Vector3(current.x, 0f, current.z);
@@ -119,8 +120,10 @@ namespace Hackathon.WebPort
             if (camera != null)
                 _spriteTransform.rotation = Quaternion.LookRotation(camera.transform.forward, camera.transform.up);
 
+            _occlusionOpacity += (occlusionTargetOpacity - _occlusionOpacity) * WebPortConstants.OcclusionFadeLerpRate;
+
             Color tint = Color.white;
-            tint.a = player.Stunned ? 0.45f : 1f;
+            tint.a = (player.Stunned ? 0.45f : 1f) * _occlusionOpacity;
             WebPortVisuals.SetMaterialColor(_spriteMaterial, tint);
 
             if (player.Rolling)
