@@ -60,7 +60,7 @@ namespace Hackathon.WebPort
         public const float BombDirectScale = 1.9f;
         public const float BombStunDuration = 1f;
         public const float GravityRadius = 150f;
-        public const float GravityPull = 40f;
+        public const float GravityPull = 100f;
         public const float ExtrapolateCapSeconds = 0.15f;
         public const float BoxHalf = 12f;
         public const float BoxPushSpeed = 85f;
