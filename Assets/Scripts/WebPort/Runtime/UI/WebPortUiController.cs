@@ -255,10 +255,6 @@ namespace Hackathon.WebPort
             _timerPanelImage = timerPanel.GetComponent<Image>();
             _timerText = AddText(timerPanel.transform, "03:00", 20, FontStyle.Bold, Vector2.zero, new Vector2(96f, 40f), Theme.uiText);
 
-            GameObject controls = CreateHudPanel("Controls", new Vector2(12f, 12f), new Vector2(704f, 36f), TextAnchor.LowerLeft);
-            Text controlsText = AddText(controls.transform, "WASD 이동  /  Shift 조심히 걷기  /  E 줍기  /  마우스 차징 던지기  /  Q 잡기  /  Space 차징 밀치기", 13, FontStyle.Normal, Vector2.zero, new Vector2(674f, 28f), Theme.uiText);
-            controlsText.alignment = TextAnchor.MiddleLeft;
-
             _instabilityPanel = CreateHudPanel("Instability", new Vector2(-12f, 12f), new Vector2(196f, 76f), TextAnchor.LowerRight);
             _instabilityText = AddText(_instabilityPanel.transform, "불안정도 0%", 12, FontStyle.Bold, new Vector2(0f, 18f), new Vector2(172f, 24f), WebPortVisuals.GoalGreen);
 
