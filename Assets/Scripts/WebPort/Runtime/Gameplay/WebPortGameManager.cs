@@ -233,6 +233,7 @@ namespace Hackathon.WebPort
         private void OnGameStarted(GameStartPayload payload)
         {
             _phase = GamePhase.Playing;
+            WebPortAudio.PlayBackgroundMusic();
             bool useAuthoredAnchors = _layout != null && _localTransport != null;
             _start = useAuthoredAnchors ? _layout.StartPosition : payload.Start;
             _goal = useAuthoredAnchors ? _layout.GetGoalPosition(0) : payload.Goal;
@@ -284,6 +285,7 @@ namespace Hackathon.WebPort
         private void OnGameEnded(IReadOnlyList<ScoreEntry> results)
         {
             _phase = GamePhase.Results;
+            WebPortAudio.StopBackgroundMusic();
             _ui.ShowResults(results, _selfId, _selfId == _hostId, _roomCode);
         }
 
@@ -523,6 +525,7 @@ namespace Hackathon.WebPort
             self.GrabbedBy = msg["from"]!.Value<int>();
             self.GrabTimer = WebPortConstants.GrabDuration;
             AddEffect(EffectKind.GrabFlash, self.Position, now, 0.3f);
+            WebPortAudio.PlayImpact();
         }
 
         private void OnPushReceived(JObject msg, float now)
@@ -540,6 +543,7 @@ namespace Hackathon.WebPort
 
             self.ExternalVelocity += new Vector3(dirX, 0f, dirZ) * WebPortConstants.PushForce * scale;
             AddEffect(EffectKind.Impact, self.Position, now, 0.35f);
+            WebPortAudio.PlayImpact();
 
             int heldNow = CountHeld(self.Id);
             self.Instability = 100f;
@@ -559,6 +563,7 @@ namespace Hackathon.WebPort
                 return;
 
             Stun(self, WebPortConstants.StunDuration, 0f);
+            WebPortAudio.PlayImpact();
             DropHeldBoxes(self.Id);
         }
 
@@ -567,6 +572,7 @@ namespace Hackathon.WebPort
             Vector3 position = new(msg["x"]!.Value<float>(), 0f, msg["z"]!.Value<float>());
             ApplyBlast(position, now);
             AddEffect(EffectKind.Explosion, position, now, 0.5f);
+            WebPortAudio.PlayExplosion();
             _packages.Remove(msg["id"]!.Value<int>());
         }
 
@@ -1379,6 +1385,7 @@ namespace Hackathon.WebPort
             self.Deliveries += package.Kind == PackageKind.High ? 5 : 1;
             _deliveredSinceTruck++;
             AddEffect(EffectKind.Deliver, package.Position, now, 0.9f);
+            WebPortAudio.PlayDelivery(package.Kind);
 
             if (_deliveredSinceTruck >= WebPortConstants.TruckThreshold)
             {
@@ -1411,6 +1418,7 @@ namespace Hackathon.WebPort
                 // Notify the target instead of stunning them directly - they apply it to
                 // themselves on receipt (OnHitReceived), same reasoning as push above.
                 _transport.Send(new HitCommand { TargetId = player.Id, X = package.Position.x, Z = package.Position.z });
+                WebPortAudio.PlayImpact();
                 break;
             }
         }
@@ -1425,6 +1433,7 @@ namespace Hackathon.WebPort
 
             ApplyBlast(package.Position, now);
             AddEffect(EffectKind.Explosion, package.Position, now, 0.5f);
+            WebPortAudio.PlayExplosion();
             _packages.Remove(package.Id);
         }
 
@@ -1514,6 +1523,8 @@ namespace Hackathon.WebPort
             nearest.TargetPosition = nearest.Position;
             ClearSlotForPackage(nearest.Id);
             _transport.Send(new PickupCommand { Id = nearest.Id });
+            if (nearest.Kind == PackageKind.Gravity)
+                WebPortAudio.PlayGravityPickup();
         }
 
         private void DoGrab(float now)
@@ -1525,6 +1536,7 @@ namespace Hackathon.WebPort
             self.GrabCooldown = WebPortConstants.GrabCooldown;
             AddEffect(EffectKind.Swing, self.Position, now, 0.25f, self.Angle);
             AddEffect(EffectKind.Sweep, self.Position, now, 0.22f, self.Angle, length: WebPortConstants.GrabRange);
+            WebPortAudio.PlayPushOrGrabUse();
 
             PlayerState target = FindFrontalTarget(WebPortConstants.GrabRange, WebPortConstants.GrabCone);
             if (target == null)
@@ -1535,6 +1547,7 @@ namespace Hackathon.WebPort
             self.DraggingId = target.Id;
             self.DragTimer = WebPortConstants.GrabDuration;
             AddEffect(EffectKind.GrabFlash, target.Position, now, 0.3f);
+            WebPortAudio.PlayImpact();
             _transport.Send(new GrabCommand { TargetId = target.Id });
         }
 
@@ -1566,6 +1579,7 @@ namespace Hackathon.WebPort
             float pushAngle = CalculateMouseAimAngle(self);
             self.Angle = pushAngle;
             AddEffect(EffectKind.Shockwave, self.Position, now, 0.32f, pushAngle, radius);
+            WebPortAudio.PlayPushOrGrabUse();
 
             foreach (PlayerState target in _players.Values)
             {
@@ -1588,6 +1602,7 @@ namespace Hackathon.WebPort
                 Vector3 direction = delta / distance;
                 _transport.Send(new PushCommand { TargetId = target.Id, DirX = direction.x, DirZ = direction.z, Scale = scale });
                 AddEffect(EffectKind.Impact, target.Position, now, 0.35f);
+                WebPortAudio.PlayImpact();
             }
         }
 
@@ -1603,6 +1618,8 @@ namespace Hackathon.WebPort
             self.Angle = angle;
             List<PackageState> heldPackages = _packages.Values.Where(p => p.HeldBy == self.Id).OrderBy(p => p.Id).ToList();
             int count = heldPackages.Count;
+            if (count > 0)
+                WebPortAudio.PlayThrow();
 
             for (int i = 0; i < count; i++)
             {
