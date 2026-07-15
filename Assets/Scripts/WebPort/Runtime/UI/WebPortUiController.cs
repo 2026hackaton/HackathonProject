@@ -67,7 +67,7 @@ namespace Hackathon.WebPort
 
             if (TryBuildPrefabUi())
             {
-                ShowMenu(null);
+                ShowInitialState();
                 return;
             }
 
@@ -76,7 +76,27 @@ namespace Hackathon.WebPort
             CreateLobby();
             CreateResults();
             CreateHud();
-            ShowMenu(null);
+            ShowInitialState();
+        }
+
+        public void HidePanelsForSceneRequest()
+        {
+            if (_prefabView != null)
+            {
+                _prefabView.HideAllPanels();
+                return;
+            }
+
+            if (_screenBackground != null)
+                _screenBackground.SetActive(false);
+            if (_menuPanel != null)
+                _menuPanel.SetActive(false);
+            if (_lobbyPanel != null)
+                _lobbyPanel.SetActive(false);
+            if (_resultsPanel != null)
+                _resultsPanel.SetActive(false);
+            if (_hudRoot != null)
+                _hudRoot.SetActive(false);
         }
 
         public void ShowMenu(string error)
@@ -182,6 +202,17 @@ namespace Hackathon.WebPort
             }
 
             _truckBanner.SetActive(truckBanner);
+        }
+
+        private void ShowInitialState()
+        {
+            if (WebPortMenuSceneRequest.HasPendingSceneRequest)
+            {
+                HidePanelsForSceneRequest();
+                return;
+            }
+
+            ShowMenu(null);
         }
 
         private void CreateMenu()

@@ -82,6 +82,15 @@ namespace Hackathon.WebPort
             _joinError.Text = error ?? string.Empty;
         }
 
+        public void HideAllPanels()
+        {
+            SetActive(screenBackground, false);
+            SetActive(menuPanel, false);
+            SetActive(lobbyPanel, false);
+            SetActive(resultsPanel, false);
+            SetActive(hudRoot, false);
+        }
+
         public void ShowLobby(string roomCode, IReadOnlyList<int> memberIds, int hostId, int selfId, bool isHost)
         {
             SetPanel(lobbyPanel);
