@@ -30,6 +30,11 @@ namespace Hackathon.WebPort
         [SerializeField, Min(1f)] private float scrollingSkyCoverScale = 1f;
         [SerializeField] private float scrollingSkyVerticalOffset = 70f;
         [SerializeField] private bool mirrorScrollingSkyAlternates = true;
+        [SerializeField] private bool enableDoorwayFlicker = true;
+        [SerializeField] private Vector2 doorwayFlickerPosition = new(-20f, -86f);
+        [SerializeField] private Vector2 doorwayFlickerSize = new(130f, 210f);
+        [SerializeField] private bool enableDustParticles = true;
+        [SerializeField, Range(0, 64)] private int dustParticleCount = 22;
         [SerializeField] private RectTransform logoMotionTarget;
         [SerializeField] private RectTransform startButtonMotionTarget;
 
@@ -55,6 +60,7 @@ namespace Hackathon.WebPort
         private Button _gameStartButton;
         private GameObject _roomPanel;
         private GameObject _scrollingSkyRoot;
+        private GameObject _ambientEffectsRoot;
         private InputField _roomCodeInput;
         private Text _errorText;
 
@@ -81,6 +87,7 @@ namespace Hackathon.WebPort
                 BuildGeneratedFallback();
 
             SetupScrollingSky();
+            SetupAmbientEffects();
             SetupStartButtonHoverEffect();
             SetupMenuEffects();
             ShowMain();
@@ -219,6 +226,28 @@ namespace Hackathon.WebPort
                 scrollingSkyCoverScale,
                 scrollingSkyVerticalOffset,
                 mirrorScrollingSkyAlternates);
+        }
+
+        private void SetupAmbientEffects()
+        {
+            if ((!enableDoorwayFlicker && !enableDustParticles) || background == null)
+                return;
+
+            Transform parent = background.transform.parent != null ? background.transform.parent : transform;
+            _ambientEffectsRoot = new GameObject("Main Menu Ambient Effects");
+            _ambientEffectsRoot.transform.SetParent(parent, false);
+            _ambientEffectsRoot.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSaveInEditor;
+
+            RectTransform ambientRect = _ambientEffectsRoot.AddComponent<RectTransform>();
+            Stretch(ambientRect);
+
+            WebPortMainMenuAmbientEffects ambient = _ambientEffectsRoot.AddComponent<WebPortMainMenuAmbientEffects>();
+            ambient.Configure(
+                enableDoorwayFlicker,
+                doorwayFlickerPosition,
+                doorwayFlickerSize,
+                enableDustParticles,
+                dustParticleCount);
         }
 
         private void SetupStartButtonHoverEffect()
@@ -465,6 +494,13 @@ namespace Hackathon.WebPort
 
             if (_scrollingSkyRoot != null)
                 _scrollingSkyRoot.transform.SetAsFirstSibling();
+
+            if (_ambientEffectsRoot != null)
+            {
+                _ambientEffectsRoot.transform.SetAsLastSibling();
+                if (logo != null)
+                    _ambientEffectsRoot.transform.SetSiblingIndex(Mathf.Max(logo.transform.GetSiblingIndex(), 0));
+            }
 
             if (logo != null)
                 logo.transform.SetAsLastSibling();
