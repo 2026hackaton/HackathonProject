@@ -38,6 +38,12 @@ namespace Hackathon.WebPort
         [SerializeField] private RectTransform logoMotionTarget;
         [SerializeField] private RectTransform startButtonMotionTarget;
 
+        [Header("Audio")]
+        [SerializeField] private bool enableMenuAudio = true;
+        [SerializeField] private AudioClip backgroundMusic;
+        [SerializeField] private AudioClip buttonHoverSound;
+        [SerializeField] private AudioClip buttonClickSound;
+
         [Header("Custom Main Screen")]
         [SerializeField] private bool useGeneratedFallbackIfMissingStartButton = true;
         [SerializeField] private bool generateRoomOptionsIfMissing = true;
@@ -61,6 +67,7 @@ namespace Hackathon.WebPort
         private GameObject _roomPanel;
         private GameObject _scrollingSkyRoot;
         private GameObject _ambientEffectsRoot;
+        private WebPortMenuAudioController _menuAudio;
         private InputField _roomCodeInput;
         private Text _errorText;
 
@@ -88,6 +95,7 @@ namespace Hackathon.WebPort
 
             SetupScrollingSky();
             SetupAmbientEffects();
+            SetupMenuAudio();
             SetupStartButtonHoverEffect();
             SetupMenuEffects();
             ShowMain();
@@ -122,6 +130,28 @@ namespace Hackathon.WebPort
             return true;
         }
 
+        private void SetupMenuAudio()
+        {
+            if (!enableMenuAudio)
+                return;
+
+            _menuAudio = GetComponent<WebPortMenuAudioController>();
+            if (_menuAudio == null)
+                _menuAudio = gameObject.AddComponent<WebPortMenuAudioController>();
+
+            _menuAudio.Configure(backgroundMusic, buttonHoverSound, buttonClickSound);
+            RegisterMenuButtonAudio(_gameStartButton);
+            RegisterMenuButtonAudio(createRoomButton);
+            RegisterMenuButtonAudio(joinRoomButton);
+            RegisterMenuButtonAudio(backButton);
+        }
+
+        private void RegisterMenuButtonAudio(Button button)
+        {
+            if (_menuAudio != null && button != null)
+                _menuAudio.RegisterButton(button);
+        }
+
         private void BuildGeneratedFallback()
         {
             if (!useGeneratedFallbackIfMissingStartButton)
@@ -154,16 +184,16 @@ namespace Hackathon.WebPort
             _roomPanel = CreatePanel(canvas.transform, "Room Options Panel", new Vector2(520f, 310f), new Vector2(0f, -28f));
             AddText(_roomPanel.transform, "ROOM OPTIONS", 24, FontStyle.Bold, new Vector2(0f, 96f), new Vector2(400f, 36f), new Color(1f, 0.86f, 0.34f, 1f));
 
-            Button createButton = AddButton(_roomPanel.transform, "CREATE ROOM", new Vector2(0f, 36f), new Vector2(330f, 48f), new Color(0.95f, 0.68f, 0.16f, 1f));
-            createButton.onClick.AddListener(OnCreateRoomClicked);
+            createRoomButton = AddButton(_roomPanel.transform, "CREATE ROOM", new Vector2(0f, 36f), new Vector2(330f, 48f), new Color(0.95f, 0.68f, 0.16f, 1f));
+            createRoomButton.onClick.AddListener(OnCreateRoomClicked);
 
             _roomCodeInput = AddInput(_roomPanel.transform, "ROOM CODE", new Vector2(0f, -24f), new Vector2(330f, 42f));
 
-            Button joinButton = AddButton(_roomPanel.transform, "JOIN ROOM", new Vector2(0f, -82f), new Vector2(330f, 46f), new Color(0.10f, 0.65f, 0.72f, 1f));
-            joinButton.onClick.AddListener(OnJoinRoomClicked);
+            joinRoomButton = AddButton(_roomPanel.transform, "JOIN ROOM", new Vector2(0f, -82f), new Vector2(330f, 46f), new Color(0.10f, 0.65f, 0.72f, 1f));
+            joinRoomButton.onClick.AddListener(OnJoinRoomClicked);
 
-            Button fallbackBackButton = AddButton(_roomPanel.transform, "BACK", new Vector2(0f, -134f), new Vector2(140f, 32f), new Color(0.18f, 0.22f, 0.23f, 1f));
-            fallbackBackButton.onClick.AddListener(ShowMain);
+            backButton = AddButton(_roomPanel.transform, "BACK", new Vector2(0f, -134f), new Vector2(140f, 32f), new Color(0.18f, 0.22f, 0.23f, 1f));
+            backButton.onClick.AddListener(ShowMain);
 
             _errorText = AddText(_roomPanel.transform, string.Empty, 12, FontStyle.Normal, new Vector2(0f, -168f), new Vector2(380f, 22f), new Color(1f, 0.38f, 0.30f, 1f));
         }
